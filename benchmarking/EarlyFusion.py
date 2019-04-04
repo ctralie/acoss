@@ -179,7 +179,7 @@ class EarlyFusion(CoverAlgorithm):
             block_feats['%s_W'%feat] = getW(d, self.K)
         """
 
-        #self.all_block_feats[i] = block_feats # Cache features
+        self.all_block_feats[i] = block_feats # Cache features
         dd.io.save(filepath, block_feats)
         if self.log_times:
             self.times['features'].append(time.time()-tic)
@@ -327,13 +327,23 @@ if __name__ == '__main__':
 
     start = time.monotonic()
     ef = EarlyFusion(cmd_args.datapath, cmd_args.chroma_type, cmd_args.shortname, log_times=bool(cmd_args.log_times))
+    N = len(ef.filepaths)
+    blockdim = 30
+    batch_size = blockdim**2
+    blockres = int(N/blockdim) # Number of blocks across an axis
+    NPairs = int(blockdim*blockdim*blockres*(blockres-1)/2)
+    print("%i Pairs total across %i batches"%(NPairs, NPairs/batch_size))
     if os.path.exists('pairs_map'):
-        all_pairs = np.memmap('pairs_map', dtype=int, shape=(112500000, 2), mode='r')
+        all_pairs = np.memmap('pairs_map', dtype=int, shape=(NPairs, 2), mode='r')
     else:
-        all_pairs = np.memmap('pairs_map', dtype=int, shape=(112500000, 2), mode='w+')
-        for idx, (i, j) in enumerate(combinations(range(len(ef.filepaths)), 2)):
-            all_pairs[idx, 0] = i
-            all_pairs[idx, 1] = j
+        all_pairs = np.memmap('pairs_map', dtype=int, shape=(NPairs, 2), mode='w+')
+        I, J = np.meshgrid(np.arange(blockdim), np.arange(blockdim))
+        blockidx = np.array([I.flatten(), J.flatten()]).T
+        idx = 0
+        for blocki in range(blockdim):
+            for blockj in range(blocki, blockdim):
+                all_pairs[idx*batch_size:(idx+1)*batch_size, :] = blockidx + np.array([[blocki*blockdim, blockj*blockdim]])
+                idx += 1
     #if cmd_args.parallel == 1:
     #    from joblib import Parallel, delayed
     #    Parallel(n_jobs=cmd_args.n_cores, verbose=1)(delayed(ef.load_and_write)(i) for i in range(len(ef.filepaths)))
@@ -342,8 +352,8 @@ if __name__ == '__main__':
     #        print("Preloading features %i of %i"%(i+1, len(ef.filepaths)))
     #        ef.load_features(i)
     #ef.all_pairwise(cmd_args.parallel, cmd_args.n_cores, symmetric=True)
-    batch_size = 1000
     for index in range(cmd_args.idx*batch_size,(cmd_args.idx+1)*batch_size):
+        print(all_pairs[index, 0], all_pairs[index, 1])
         ef.similarity(all_pairs[index, 0], all_pairs[index, 1])
         if index == 10000:
             print('hit 10000 {}'.format(time.monotonic()-start))

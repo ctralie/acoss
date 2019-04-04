@@ -55,6 +55,13 @@ class ChenFusion(CoverAlgorithm):
         return self.all_feats[i]
 
     def similarity(self, i, j):
+        allExist = True
+        for s in ["qmax", "dmax"]:
+            if not os.path.exists('cache/distances/{}/{}_{}.txt'.format(s, i, j)):
+                allExist = False
+                break
+        if allExist:
+            return
         Si = self.load_features(i)
         Sj = self.load_features(j)
         csm = get_csm_blocked_oti(Si['stacked'], Sj['stacked'], Si['gchroma'], Sj['gchroma'], get_csm_euclidean)
