@@ -54,17 +54,23 @@ class ChenFusion(CoverAlgorithm):
             self.all_feats[i] = feats
         return self.all_feats[i]
 
-    def similarity(self, idxs):
-        for i,j in zip(idxs[:, 0], idxs[:, 1]):
-            Si = self.load_features(i)
-            Sj = self.load_features(j)
-            csm = get_csm_blocked_oti(Si['stacked'], Sj['stacked'], Si['gchroma'], Sj['gchroma'], get_csm_euclidean)
-            csm = csm_to_binary(csm, self.kappa)
-            M, N = csm.shape[0], csm.shape[1]
-            D = np.zeros(M*N, dtype=np.float32)
-            self.Ds["qmax"][i, j] = qmax(csm.flatten(), D, M, N)
-            D *= 0
-            self.Ds["dmax"][i, j] = dmax(csm.flatten(), D, M, N)
+    def similarity(self, i, j):
+        Si = self.load_features(i)
+        Sj = self.load_features(j)
+        csm = get_csm_blocked_oti(Si['stacked'], Sj['stacked'], Si['gchroma'], Sj['gchroma'], get_csm_euclidean)
+        csm = csm_to_binary(csm, self.kappa)
+        M, N = csm.shape[0], csm.shape[1]
+        D = np.zeros(M*N, dtype=np.float32)
+        scores = {}
+        scores["qmax"] = qmax(csm.flatten(), D, M, N)
+        scores["dmax"] = dmax(csm.flatten(), D, M, N)
+        for s in scores:
+            if not os.path.exists('cache/distances'):
+                os.mkdir('cache/distances')
+            if not os.path.exists('cache/distances/{}'.format(s)):
+                os.mkdir('cache/distances/{}'.format(s))
+            np.savetxt('cache/distances/{}/{}_{}.txt'.format(s, i, j), np.array([scores[s]]).astype('float16'), fmt='%1.3f')
+            #self.Ds[s][i, j] = scores[s]
     
     def normalize_by_length(self):
         """
@@ -96,16 +102,38 @@ if __name__ == '__main__':
                         help="Parallel computing or not")
     parser.add_argument("-n", '--n_cores', type=int, action="store", default=1,
                         help="No of cores required for parallelization")
+    parser.add_argument("-i", '--idx', type=int, action="store", default=0,
+                        help="Index of pairs")
 
     cmd_args = parser.parse_args()
 
-    chenFusion = ChenFusion(cmd_args.datapath, cmd_args.chroma_type, cmd_args.shortname)
-    chenFusion.all_pairwise(cmd_args.parallel, cmd_args.n_cores, symmetric=True)
-    chenFusion.normalize_by_length()
-    chenFusion.do_late_fusion()
-    for similarity_type in chenFusion.Ds.keys():
-        print(similarity_type)
-        chenFusion.getEvalStatistics(similarity_type)
-    chenFusion.cleanup_memmap()
-    print("... Done ....")
+    from itertools import combinations
+    import time
 
+    start = time.monotonic()
+    cf = ChenFusion(cmd_args.datapath, cmd_args.chroma_type, cmd_args.shortname)
+    N = len(cf.filepaths)
+    blockdim = 100
+    batch_size = blockdim**2
+    blockres = int(N/blockdim) # Number of blocks across an axis
+    NPairs = int(blockdim*blockdim*blockres*(blockres-1)/2)
+    print("%i Pairs total across %i batches"%(NPairs, NPairs/batch_size))
+
+    ## Setup pairs
+    all_pairs = np.zeros((NPairs, 2), dtype=int)
+    I, J = np.meshgrid(np.arange(blockdim), np.arange(blockdim))
+    blockidx = np.array([I.flatten(), J.flatten()]).T
+    idx = 0
+    for blocki in range(blockdim):
+        for blockj in range(blocki, blockdim):
+            all_pairs[idx*batch_size:(idx+1)*batch_size, :] = blockidx + np.array([[blocki*blockdim, blockj*blockdim]])
+            idx += 1
+
+    ## Run the appropriate batch
+    tic = time.time()
+    for index in range(cmd_args.idx*batch_size,(cmd_args.idx+1)*batch_size):
+        print(all_pairs[index, 0], all_pairs[index, 1])
+        cf.similarity(all_pairs[index, 0], all_pairs[index, 1])
+        if index == 10000:
+            print('hit 10000 {}'.format(time.monotonic()-start))
+    print("Elapsed Time Batch %i: %.3g"%(cmd_args.idx, time.time()-tic))
