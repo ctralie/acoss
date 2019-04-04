@@ -123,23 +123,25 @@ if __name__ == '__main__':
     blockdim = 100
     batch_size = blockdim**2
     blockres = int(N/blockdim) # Number of blocks across an axis
-    NPairs = int(blockdim*blockdim*blockres*(blockres-1)/2)
-    print("%i Pairs total across %i batches"%(NPairs, NPairs/batch_size))
+    NPairs = int(blockdim*blockdim*(blockres+blockres*(blockres-1)/2))
 
     ## Setup pairs
-    all_pairs = np.zeros((NPairs, 2), dtype=int)
-    I, J = np.meshgrid(np.arange(blockdim), np.arange(blockdim))
-    blockidx = np.array([I.flatten(), J.flatten()]).T
-    idx = 0
-    for blocki in range(blockdim):
-        for blockj in range(blocki, blockdim):
-            all_pairs[idx*batch_size:(idx+1)*batch_size, :] = blockidx + np.array([[blocki*blockdim, blockj*blockdim]])
-            idx += 1
+    if os.path.exists('pairs_map'):
+        all_pairs = np.memmap('pairs_map', dtype=int, shape=(NPairs, 2), mode='r')
+    else:
+        all_pairs = np.memmap('pairs_map', dtype=int, shape=(NPairs, 2), mode='w+')
+        I, J = np.meshgrid(np.arange(blockdim), np.arange(blockdim))
+        blockidx = np.array([I.flatten(), J.flatten()]).T
+        idx = 0
+        for blocki in range(blockres):
+            for blockj in range(blocki, blockres):
+                all_pairs[idx*batch_size:(idx+1)*batch_size, :] = blockidx + np.array([[blocki*blockdim, blockj*blockdim]])
+                idx += 1
 
     ## Run the appropriate batch
     tic = time.time()
     for index in range(cmd_args.idx*batch_size,(cmd_args.idx+1)*batch_size):
-        print(all_pairs[index, 0], all_pairs[index, 1])
+        #print(all_pairs[index, 0], all_pairs[index, 1])
         cf.similarity(all_pairs[index, 0], all_pairs[index, 1])
         if index == 10000:
             print('hit 10000 {}'.format(time.monotonic()-start))
