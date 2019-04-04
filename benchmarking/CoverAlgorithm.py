@@ -43,8 +43,11 @@ class CoverAlgorithm(object):
         if not os.path.exists(cachedir):
             os.mkdir(cachedir)
         self.Ds = {}
-        for s in similarity_types:
-            self.Ds[s] = np.memmap('%s_%s_dmat' % (self.get_cacheprefix(), s), shape=(self.N, self.N), mode='w+', dtype='float32')
+        #for s in similarity_types:
+        #    if not os.path.exists('%s_%s_dmat' % (self.get_cacheprefix(), s)):
+        #        self.Ds[s] = np.memmap('%s_%s_dmat' % (self.get_cacheprefix(), s), shape=(self.N, self.N), mode='w+', dtype='float32')
+        #    else:
+        #        self.Ds[s] = np.memmap('%s_%s_dmat' % (self.get_cacheprefix(), s), shape=(self.N, self.N), mode='r+', dtype='float32')
         print("Initialized %s algorithm on %i songs in dataset %s"%(name, self.N, shortname))
     
     def get_cacheprefix(self):

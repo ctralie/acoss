@@ -124,10 +124,11 @@ class EarlyFusion(CoverAlgorithm):
         elif os.path.exists(filepath):
             # If the result has already been cached on disk,
             # load it, save it in memory, and return
-            self.all_block_feats[i] = dd.io.load(filepath)
+            #self.all_block_feats[i] = dd.io.load(filepath)
+            temp_feat = dd.io.load(filepath)
             # Make sure to also load clique info as a side effect
-            feats = CoverAlgorithm.load_features(self, i)
-            return self.all_block_feats[i]
+            #feats = CoverAlgorithm.load_features(self, i)
+            return temp_feat
         tic = time.time()
         block_feats = {}
         feats = CoverAlgorithm.load_features(self, i)
@@ -178,59 +179,120 @@ class EarlyFusion(CoverAlgorithm):
             block_feats['%s_W'%feat] = getW(d, self.K)
         """
 
-        self.all_block_feats[i] = block_feats # Cache features
+        #self.all_block_feats[i] = block_feats # Cache features
         dd.io.save(filepath, block_feats)
         if self.log_times:
             self.times['features'].append(time.time()-tic)
         return block_feats
 
 
-    def similarity(self, idxs, do_plot=False):
-        for i, j in zip(idxs[:, 0], idxs[:, 1]):
-            print(i, j)
-            feats1 = self.load_features(i)
-            feats2 = self.load_features(j)
-            ## Step 1: Create all of the parent SSMs
-            Ws = {}
-            scores = {}
-            CSMs = {}
-            tic = time.time()
-            CSMs['mfccs'] = get_csm(feats1['mfccs'], feats2['mfccs'])
-            M, N = CSMs['mfccs'].shape[0], CSMs['mfccs'].shape[1]
-            D = np.zeros((M+1)*(N+1), dtype=np.float32)
-            scores['mfccs'] = alignment_fn(csm_to_binary(CSMs['mfccs'], self.kappa).flatten(), D, M, N)
-            CSMs['ssms'] = get_csm(feats1['ssms'], feats2['ssms'])
-            D *= 0
-            scores['ssms'] = alignment_fn(csm_to_binary(CSMs['ssms'], self.kappa).flatten(), D, M, N)
-            CSMs['chromas'] = get_csm_blocked_oti(feats1['chromas'], feats2['chromas'], \
-                                                        feats1['chroma_med'], feats2['chroma_med'],\
-                                                        get_csm_cosine)
-            D *= 0
-            scores['chromas'] = alignment_fn(csm_to_binary(CSMs['chromas'], self.kappa).flatten(), D, M, N)
+    def load_and_write(self, i):
+        filepath = "%s_%i.h5"%(self.get_cacheprefix(), i)
+        if not os.path.exists(filepath):
+            block_feats = {}
+            feats = CoverAlgorithm.load_features(self, i)
+            chroma = feats[self.chroma_type]
+            mfcc = feats['mfcc_htk'].T
+            mfcc[np.isnan(mfcc)] = 0
 
-            ## Step 2: Compute Ws for each CSM
-            W_CSMs = {s:getWCSM(CSMs[s], self.K, self.K) for s in CSMs}
-            WCSM_sum = np.zeros_like(CSMs['mfccs'])
-            for s in W_CSMs:
-                WCSM_sum += W_CSMs[s]
-            WCSM_sum = np.exp(-WCSM_sum) # Binary thresholding uses "distances" so switch back
-            D *= 0
-            scores['early'] = alignment_fn(csm_to_binary(WCSM_sum, self.kappa).flatten(), D, M, N)
-            if do_plot:
-                import matplotlib.pyplot as plt
-                plt.figure(figsize=(12, 6))
-                plt.subplot(121)
-                plt.imshow(csm_to_binary(WCSM_sum, self.kappa))
-                plt.subplot(122)
-                plt.imshow(np.reshape(D, (M+1, N+1)))
-                plt.title("%.3g"%scores['early'])
-                plt.show()
+            onsets = feats['madmom_features']['onsets']
+            n_beats = len(onsets)
+            n_blocks = n_beats - self.blocksize
 
-            if self.log_times:
-                self.times['raw'].append(time.time()-tic)
+            ## Step 1: Compute raw MFCC and MFCC SSM blocked features
+            # Allocate space for MFCC-based features
+            block_feats['mfccs'] = np.zeros((n_blocks, self.mfccs_per_block*mfcc.shape[1]), dtype=np.float32)
+            pix = np.arange(self.mfccs_per_block)
+            I, J = np.meshgrid(pix, pix)
+            dpixels = int(self.mfccs_per_block*(self.mfccs_per_block-1)/2)
+            block_feats['ssms'] = np.zeros((n_blocks, dpixels), dtype=np.float32)
+            # Compute MFCC-based features
+            for b in range(n_blocks):
+                i1 = onsets[b]
+                i2 = onsets[b+self.blocksize-1]
+                x = resize_block(mfcc, i1, i2, self.mfccs_per_block)
+                # Z-normalize
+                x -= np.mean(x, 0)[None, :]
+                xnorm = np.sqrt(np.sum(x**2, 1))[:, None]
+                xnorm[xnorm == 0] = 1
+                xn = x / xnorm
+                block_feats['mfccs'][b, :] = xn.flatten()
+                # Create SSM, resize, and save
+                D = get_ssm(xn)
+                block_feats['ssms'][b, :] = D[I < J] # Upper triangular part
+            
+            ## Step 2: Compute chroma blocks
+            block_feats['chromas'] = np.zeros((n_blocks, self.chromas_per_block*chroma.shape[1]), dtype=np.float32)
+            block_feats['chroma_med'] = np.median(chroma, axis=0)
+            for b in range(n_blocks):
+                i1 = onsets[b]
+                i2 = onsets[b+self.blocksize]
+                x = resize_block(chroma, i1, i2, self.chromas_per_block)
+                block_feats['chromas'][b, :] = x.flatten()
+            
+            ## Step 3: Precompute Ws for each features
+            """ Skip this since I'm doing a simpler, accelerated early fusion
+            ssm_fns = {'chromas':lambda x: get_csm_cosine(x, x), 'mfccs':get_ssm, 'ssms':get_ssm}
+            for feat in ssm_fns:
+                d = ssm_fns[feat](block_feats[feat])
+                block_feats['%s_W'%feat] = getW(d, self.K)
+            """
 
-            for s in scores:
-                self.Ds[s][i, j] = scores[s]
+            self.all_block_feats[i] = block_feats # Cache features
+            dd.io.save(filepath, block_feats)
+
+
+    def similarity(self, i, j, do_plot=False):
+        feats1 = self.load_features(i)
+        feats2 = self.load_features(j)
+        ## Step 1: Create all of the parent SSMs
+        Ws = {}
+        scores = {}
+        CSMs = {}
+        tic = time.time()
+        CSMs['mfccs'] = get_csm(feats1['mfccs'], feats2['mfccs'])
+        M, N = CSMs['mfccs'].shape[0], CSMs['mfccs'].shape[1]
+        D = np.zeros((M+1)*(N+1), dtype=np.float32)
+        scores['mfccs'] = alignment_fn(csm_to_binary(CSMs['mfccs'], self.kappa).flatten(), D, M, N)
+        CSMs['ssms'] = get_csm(feats1['ssms'], feats2['ssms'])
+        D *= 0
+        scores['ssms'] = alignment_fn(csm_to_binary(CSMs['ssms'], self.kappa).flatten(), D, M, N)
+        CSMs['chromas'] = get_csm_blocked_oti(feats1['chromas'], feats2['chromas'], \
+                                                    feats1['chroma_med'], feats2['chroma_med'],\
+                                                    get_csm_cosine)
+        D *= 0
+        scores['chromas'] = alignment_fn(csm_to_binary(CSMs['chromas'], self.kappa).flatten(), D, M, N)
+
+        ## Step 2: Compute Ws for each CSM
+        W_CSMs = {s:getWCSM(CSMs[s], self.K, self.K) for s in CSMs}
+        WCSM_sum = np.zeros_like(CSMs['mfccs'])
+        for s in W_CSMs:
+            WCSM_sum += W_CSMs[s]
+        WCSM_sum = np.exp(-WCSM_sum) # Binary thresholding uses "distances" so switch back
+        D *= 0
+        scores['early'] = alignment_fn(csm_to_binary(WCSM_sum, self.kappa).flatten(), D, M, N)
+        if do_plot:
+            import matplotlib.pyplot as plt
+            plt.figure(figsize=(12, 6))
+            plt.subplot(121)
+            plt.imshow(csm_to_binary(WCSM_sum, self.kappa))
+            plt.subplot(122)
+            plt.imshow(np.reshape(D, (M+1, N+1)))
+            plt.title("%.3g"%scores['early'])
+            plt.show()
+
+        if self.log_times:
+            self.times['raw'].append(time.time()-tic)
+
+        for s in scores:
+            #print(s)
+            #print(scores[s])
+            if not os.path.exists('cache/distances'):
+                os.mkdir('cache/distances')
+            if not os.path.exists('cache/distances/{}'.format(s)):
+                os.mkdir('cache/distances/{}'.format(s))
+            np.savetxt('cache/distances/{}/{}_{}.txt'.format(s, i, j), np.array([scores[s]]).astype('float16'), fmt='%1.3f')
+            #self.Ds[s][i, j] = scores[s]
 
     def do_late_fusion(self):
         """
@@ -255,22 +317,43 @@ if __name__ == '__main__':
                         help="No of cores required for parallelization")
     parser.add_argument("-l", '--log_times', type=int, choices=(0, 1), action="store", default=0,
                         help="Whether to log times to a file")
+    parser.add_argument("-i", '--idx', type=int, action="store", default=0,
+                        help="Index of pairs")
 
     cmd_args = parser.parse_args()
 
+    from itertools import combinations
+    import time
+
+    start = time.monotonic()
     ef = EarlyFusion(cmd_args.datapath, cmd_args.chroma_type, cmd_args.shortname, log_times=bool(cmd_args.log_times))
-    if cmd_args.parallel == 1:
-        from joblib import Parallel, delayed
-        Parallel(n_jobs=cmd_args.n_cores, verbose=1)(delayed(ef.load_features)(i) for i in range(len(ef.filepaths)))
+    if os.path.exists('pairs_map'):
+        all_pairs = np.memmap('pairs_map', dtype=int, shape=(112500000, 2), mode='r')
     else:
-        for i in range(len(ef.filepaths)):
-            print("Preloading features %i of %i"%(i+1, len(ef.filepaths)))
-            ef.load_features(i)
-    ef.all_pairwise(cmd_args.parallel, cmd_args.n_cores, symmetric=True)
-    ef.do_late_fusion()
-    for similarity_type in ef.Ds:
-        ef.getEvalStatistics(similarity_type)
-    ef.cleanup_memmap()
+        all_pairs = np.memmap('pairs_map', dtype=int, shape=(112500000, 2), mode='w+')
+        for idx, (i, j) in enumerate(combinations(range(len(ef.filepaths)), 2)):
+            all_pairs[idx, 0] = i
+            all_pairs[idx, 1] = j
+    #if cmd_args.parallel == 1:
+    #    from joblib import Parallel, delayed
+    #    Parallel(n_jobs=cmd_args.n_cores, verbose=1)(delayed(ef.load_and_write)(i) for i in range(len(ef.filepaths)))
+    #else:
+    #    for i in range(len(ef.filepaths)):
+    #        print("Preloading features %i of %i"%(i+1, len(ef.filepaths)))
+    #        ef.load_features(i)
+    #ef.all_pairwise(cmd_args.parallel, cmd_args.n_cores, symmetric=True)
+    batch_size = 1000
+    for index in range(cmd_args.idx*batch_size,(cmd_args.idx+1)*batch_size):
+        ef.similarity(all_pairs[index, 0], all_pairs[index, 1])
+        if index == 10000:
+            print('hit 10000 {}'.format(time.monotonic()-start))
+    
+    #ef.similarity(all_pairs[cmd_args.idx, 0], all_pairs[cmd_args.idx, 1])
+    print('time passed {}'.format(time.monotonic()-start))
+    #ef.do_late_fusion()
+    #for similarity_type in ef.Ds:
+    #    ef.getEvalStatistics(similarity_type)
+    #ef.cleanup_memmap()
     
     if ef.log_times:
         for s in ef.times:
