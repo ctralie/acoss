@@ -56,12 +56,16 @@ class ChenFusion(CoverAlgorithm):
 
     def similarity(self, i, j):
         allExist = True
+        scores = {}
         for s in ["qmax", "dmax"]:
-            if not os.path.exists('cache/distances/{}/{}_{}.txt'.format(s, i, j)):
+            filename = 'cache/distances/{}/{}_{}.txt'.format(s, i, j)
+            if os.path.exists(filename):
+                scores[s] = float(np.loadtxt(filename))
+            else:
                 allExist = False
                 break
         if allExist:
-            return
+            return scores
         Si = self.load_features(i)
         Sj = self.load_features(j)
         csm = get_csm_blocked_oti(Si['stacked'], Sj['stacked'], Si['gchroma'], Sj['gchroma'], get_csm_euclidean)
@@ -71,13 +75,7 @@ class ChenFusion(CoverAlgorithm):
         scores = {}
         scores["qmax"] = qmax(csm.flatten(), D, M, N)
         scores["dmax"] = dmax(csm.flatten(), D, M, N)
-        for s in scores:
-            if not os.path.exists('cache/distances'):
-                os.mkdir('cache/distances')
-            if not os.path.exists('cache/distances/{}'.format(s)):
-                os.mkdir('cache/distances/{}'.format(s))
-            np.savetxt('cache/distances/{}/{}_{}.txt'.format(s, i, j), np.array([scores[s]]).astype('float16'), fmt='%1.3f')
-            #self.Ds[s][i, j] = scores[s]
+        return scores
     
     def normalize_by_length(self):
         """
@@ -114,9 +112,20 @@ if __name__ == '__main__':
 
     cmd_args = parser.parse_args()
 
+    ## Check directory and file existence
     from itertools import combinations
     import time
-
+    import sys
+    filename = 'cache/distances_batch/chen_%s/%i.h5'%(cmd_args.shortname, cmd_args.idx)
+    if os.path.exists(filename):
+        print("Batch %i already done for %s; skipping..."%(cmd_args.idx, cmd_args.shortname))
+        sys.exit(0)
+    if not os.path.exists('cache/distances_batch'):
+        os.mkdir('cache/distances_batch')
+    if not os.path.exists('cache/distances_batch/chen_%s'%cmd_args.shortname):
+        os.mkdir('cache/distances_batch/chen_%s'%cmd_args.shortname)
+    
+    ## Initialize algorithm
     start = time.monotonic()
     cf = ChenFusion(cmd_args.datapath, cmd_args.chroma_type, cmd_args.shortname)
     N = len(cf.filepaths)
@@ -140,9 +149,17 @@ if __name__ == '__main__':
 
     ## Run the appropriate batch
     tic = time.time()
-    for index in range(cmd_args.idx*batch_size,(cmd_args.idx+1)*batch_size):
+    scores = {'dmax':np.zeros((batch_size, 3), dtype=np.float32), \
+              'qmax':np.zeros((batch_size, 3), dtype=np.float32)}
+    for bidx, index in enumerate(range(cmd_args.idx*batch_size,(cmd_args.idx+1)*batch_size)):
         #print(all_pairs[index, 0], all_pairs[index, 1])
-        cf.similarity(all_pairs[index, 0], all_pairs[index, 1])
+        i = all_pairs[index, 0]
+        j = all_pairs[index, 1]
+        res = cf.similarity(i, j)
+        for s in res:
+            scores[s][bidx, :] = [i, j, res[s]]
         if index == 10000:
             print('hit 10000 {}'.format(time.monotonic()-start))
     print("Elapsed Time Batch %i: %.3g"%(cmd_args.idx, time.time()-tic))
+    
+    dd.io.save(filename, scores)
