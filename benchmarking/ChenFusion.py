@@ -28,7 +28,7 @@ class ChenFusion(CoverAlgorithm):
         Cached features
     """
     def __init__(self, datapath="../features_covers80", chroma_type='hpcp', shortname='benchmark', 
-                oti=True, kappa=0.095, tau=1, m=9, downsample_fac=40):
+                oti=True, kappa=0.095, tau=1, m=2, downsample_fac=40):
         self.oti = oti
         self.tau = tau
         self.m = m
@@ -49,7 +49,7 @@ class ChenFusion(CoverAlgorithm):
             # Now downsample the chromas using median aggregation
             chroma = librosa.util.sync(chroma.T, np.arange(0, chroma.shape[0], self.downsample_fac), aggregate=np.median)
             # Finally, do a stacked delay embedding
-            stacked = librosa.feature.stack_memory(chroma, self.tau, self.m).T
+            stacked = librosa.feature.stack_memory(chroma, n_steps=self.m, delay=self.tau).T
             feats = {'gchroma':gchroma, 'stacked':stacked}
             self.all_feats[i] = feats
         return self.all_feats[i]
