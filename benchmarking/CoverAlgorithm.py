@@ -37,7 +37,7 @@ class CoverAlgorithm(object):
         self.name = name
         self.shortname = shortname
         self.cachedir = cachedir
-        self.filepaths = glob.glob("%s/*.h5" % datapath)
+        self.filepaths = sorted(glob.glob("%s/*.h5" % datapath))
         self.cliques = {}
         self.N = len(self.filepaths)
         if not os.path.exists(cachedir):
@@ -88,24 +88,10 @@ class CoverAlgorithm(object):
         Load all h5 files to get clique information as a side effect
         """
         import os
-        filepath = "%s_clique_info.txt"%self.get_cacheprefix()
-        if not os.path.exists(filepath):
-            fout = open(filepath, "w")
-            for i in range(len(self.filepaths)):
-                feats = CoverAlgorithm.load_features(self, i)
-                if verbose:
-                    print(i)
-                print(feats['label'])
-                fout.write("%i,%s\n"%(i, feats['label']))
-            fout.close()
-        else:
-            fin = open(filepath)
-            for line in fin.readlines():
-                i, label = line.split(",")
-                label = label.strip()
-                if not label in self.cliques:
-                    self.cliques[label] = set([])
-                self.cliques[label].add(int(i))
+        for i in range(len(self.filepaths)):
+            feats = CoverAlgorithm.load_features(self, i)
+            if verbose:
+                print(i)
 
 
     def similarity(self, idxs):
@@ -224,7 +210,6 @@ class CoverAlgorithm(object):
             if i >= startidx + Ks[kidx]:
                 startidx += Ks[kidx]
                 kidx += 1
-                print(startidx)
                 if Ks[kidx] < 2:
                     # We're done once we get to a clique with less than 2
                     # since cliques are sorted in descending order
@@ -268,7 +253,7 @@ class CoverAlgorithm(object):
         fout.write("%s_%s,"%(self.name, similarity_type))
         fout.write("%.3g, %.3g, %.3g, %.3g"%(MR, MRR, MDR, MAP))
         for t in tops:
-            fout.write(", %.3g"%t)
+            fout.write(", %i"%t)
         fout.write("\n")
         fout.close()
         return (MR, MRR, MDR, MAP, tops)
