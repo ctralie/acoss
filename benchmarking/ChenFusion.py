@@ -41,18 +41,18 @@ class ChenFusion(CoverAlgorithm):
         CoverAlgorithm.__init__(self, "ChenFusion", similarity_types=["qmax", "dmax"], datapath=datapath, shortname=shortname)
 
     def load_features(self, i):
-        if not i in self.all_feats:
-            feats = CoverAlgorithm.load_features(self, i)
-            # First compute global chroma (used for OTI later)
-            chroma = feats[self.chroma_type]
-            gchroma = global_chroma(chroma)
-            # Now downsample the chromas using median aggregation
-            chroma = librosa.util.sync(chroma.T, np.arange(0, chroma.shape[0], self.downsample_fac), aggregate=np.median)
-            # Finally, do a stacked delay embedding
-            stacked = librosa.feature.stack_memory(chroma, self.tau, self.m).T
-            feats = {'gchroma':gchroma, 'stacked':stacked}
-            self.all_feats[i] = feats
-        return self.all_feats[i]
+        if i%100 == 0:
+            print(i)
+        feats = CoverAlgorithm.load_features(self, i)
+        # First compute global chroma (used for OTI later)
+        chroma = feats[self.chroma_type]
+        gchroma = global_chroma(chroma)
+        # Now downsample the chromas using median aggregation
+        chroma = librosa.util.sync(chroma.T, np.arange(0, chroma.shape[0], self.downsample_fac), aggregate=np.median)
+        # Finally, do a stacked delay embedding
+        stacked = librosa.feature.stack_memory(chroma, self.tau, self.m).T
+        feats = {'gchroma':gchroma, 'stacked':stacked}
+        return feats
 
     def similarity(self, i, j):
         allExist = True
@@ -113,7 +113,6 @@ if __name__ == '__main__':
     cmd_args = parser.parse_args()
 
     ## Check directory and file existence
-    from itertools import combinations
     import time
     import sys
     filename = 'cache/distances_batch/chen_%s/%i.h5'%(cmd_args.shortname, cmd_args.idx)
@@ -163,3 +162,32 @@ if __name__ == '__main__':
     print("Elapsed Time Batch %i: %.3g"%(cmd_args.idx, time.time()-tic))
     
     dd.io.save(filename, scores)
+
+
+if __name__ == '__main__2':
+    import matplotlib.pyplot as plt
+    cf = ChenFusion('../features_benchmark', 'hpcp','benchmark')
+    N = len(cf.filepaths)
+    cf.Ds['dmax'] = np.zeros((N, N), dtype=np.float32)
+    cf.Ds['qmax'] = np.zeros_like(cf.Ds['dmax'])
+    for i, f in enumerate(glob.glob('cache/distances_batch/chen_benchmarking/*.h5')):
+        if i%100 == 0:
+            print(i)
+        res = dd.io.load(f)
+        for key in res.keys():
+            d = res[key]
+            I = np.array(d[:, 0], dtype=int)
+            J = np.array(d[:, 1], dtype=int)
+            d = d[:, 2]
+            cf.Ds[key][I, J] = d
+            cf.Ds[key][J, I] = d
+    print("Normalizing by length...")
+    cf.normalize_by_length()
+    print("Doing late fusion...")
+    cf.do_late_fusion()
+    print("Getting clique IDs...")
+    cf.get_all_clique_ids()
+    for similarity_type in cf.Ds.keys():
+        print(similarity_type)
+        cf.getEvalStatistics(similarity_type)
+    
