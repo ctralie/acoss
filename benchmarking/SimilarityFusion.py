@@ -107,7 +107,7 @@ def getP(W, diagRegularize = False):
     :returns P: (MxM) Probability matrix
     """
     if diagRegularize:
-        P = 0.5*np.eye(W.shape[0])
+        P = 0.5*np.eye(W.shape[0], dtype=np.float32)
         WNoDiag = np.array(W)
         np.fill_diagonal(WNoDiag, 0)
         RowSum = np.sum(WNoDiag, 1)
@@ -139,7 +139,7 @@ def getS(W, K):
     SNorm[SNorm == 0] = 1
     V = V/SNorm[:, None]
     [I, J, V] = [I.flatten(), J.flatten(), V.flatten()]
-    S = sparse.coo_matrix((V, (I, J)), shape=(N, N)).tocsr()
+    S = sparse.coo_matrix((V, (I, J)), shape=(N, N), dtype=np.float32).tocsr()
     return S
 
 
@@ -160,12 +160,13 @@ def doSimilarityFusionWs(Ws, K = 5, niters = 20, reg_diag = 1):
     Ss = [getS(W, K) for W in Ws]
 
     #Now do cross-diffusion iterations
-    Pts = [np.array(P) for P in Ps]
-    nextPts = [np.zeros(P.shape) for P in Pts]
+    Pts = [np.array(P, dtype=np.float32) for P in Ps]
+    nextPts = [np.zeros(P.shape, dtype=np.float32) for P in Pts]
 
     N = len(Pts)
     pix = np.arange(Ws[0].shape[0])
     for it in range(niters):
+        print("Doing iteration %i of %i"%(it+1, niters))
         for i in range(N):
             nextPts[i] *= 0
             tic = time.time()

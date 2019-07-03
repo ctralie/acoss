@@ -48,7 +48,7 @@ class Serra09(CoverAlgorithm):
             # Now downsample the chromas using median aggregation
             chroma = librosa.util.sync(chroma.T, np.arange(0, chroma.shape[0], self.downsample_fac), aggregate=np.median)
             # Finally, do a stacked delay embedding
-            stacked = librosa.feature.stack_memory(chroma, self.tau, self.m).T
+            stacked = librosa.feature.stack_memory(chroma, n_steps=self.m, delay=self.tau).T
             feats = {'gchroma':gchroma, 'stacked':stacked}
             self.all_feats[i] = feats
         return self.all_feats[i]

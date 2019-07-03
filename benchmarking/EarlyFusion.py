@@ -280,19 +280,9 @@ class EarlyFusion(CoverAlgorithm):
             plt.imshow(np.reshape(D, (M+1, N+1)))
             plt.title("%.3g"%scores['early'])
             plt.show()
-
         if self.log_times:
             self.times['raw'].append(time.time()-tic)
-
-        for s in scores:
-            #print(s)
-            #print(scores[s])
-            if not os.path.exists('cache/distances'):
-                os.mkdir('cache/distances')
-            if not os.path.exists('cache/distances/{}'.format(s)):
-                os.mkdir('cache/distances/{}'.format(s))
-            np.savetxt('cache/distances/{}/{}_{}.txt'.format(s, i, j), np.array([scores[s]]).astype('float16'), fmt='%1.3f')
-            #self.Ds[s][i, j] = scores[s]
+        return scores
 
     def do_late_fusion(self):
         """
@@ -324,15 +314,25 @@ if __name__ == '__main__':
 
     from itertools import combinations
     import time
+    import sys
 
-    start = time.monotonic()
+    filename = 'cache/distances_batch/early_%s/%i.h5'%(cmd_args.shortname, cmd_args.idx)
+    if os.path.exists(filename):
+        print("Batch %i already done for %s; skipping..."%(cmd_args.idx, cmd_args.shortname))
+        sys.exit(0)
+    if not os.path.exists('cache/distances_batch'):
+        os.mkdir('cache/distances_batch')
+    if not os.path.exists('cache/distances_batch/early_%s'%cmd_args.shortname):
+        os.mkdir('cache/distances_batch/early_%s'%cmd_args.shortname)
+
     ef = EarlyFusion(cmd_args.datapath, cmd_args.chroma_type, cmd_args.shortname, log_times=bool(cmd_args.log_times))
     N = len(ef.filepaths)
-    blockdim = 30
+    blockdim = 100
     batch_size = blockdim**2
     blockres = int(N/blockdim) # Number of blocks across an axis
-    NPairs = int(blockdim*blockdim*blockres*(blockres-1)/2)
-    print("%i Pairs total across %i batches"%(NPairs, NPairs/batch_size))
+    NPairs = int(blockdim*blockdim*(blockres+blockres*(blockres-1)/2))
+
+    ## Setup pairs
     if os.path.exists('pairs_map'):
         all_pairs = np.memmap('pairs_map', dtype=int, shape=(NPairs, 2), mode='r')
     else:
@@ -340,33 +340,23 @@ if __name__ == '__main__':
         I, J = np.meshgrid(np.arange(blockdim), np.arange(blockdim))
         blockidx = np.array([I.flatten(), J.flatten()]).T
         idx = 0
-        for blocki in range(blockdim):
-            for blockj in range(blocki, blockdim):
+        for blocki in range(blockres):
+            for blockj in range(blocki, blockres):
                 all_pairs[idx*batch_size:(idx+1)*batch_size, :] = blockidx + np.array([[blocki*blockdim, blockj*blockdim]])
                 idx += 1
-    #if cmd_args.parallel == 1:
-    #    from joblib import Parallel, delayed
-    #    Parallel(n_jobs=cmd_args.n_cores, verbose=1)(delayed(ef.load_and_write)(i) for i in range(len(ef.filepaths)))
-    #else:
-    #    for i in range(len(ef.filepaths)):
-    #        print("Preloading features %i of %i"%(i+1, len(ef.filepaths)))
-    #        ef.load_features(i)
-    #ef.all_pairwise(cmd_args.parallel, cmd_args.n_cores, symmetric=True)
-    for index in range(cmd_args.idx*batch_size,(cmd_args.idx+1)*batch_size):
-        print(all_pairs[index, 0], all_pairs[index, 1])
-        ef.similarity(all_pairs[index, 0], all_pairs[index, 1])
-        if index == 10000:
-            print('hit 10000 {}'.format(time.monotonic()-start))
+    ## Run the appropriate batch
+    tic = time.time()
+    scores = {'mfccs':np.zeros((batch_size, 3), dtype=np.float32), \
+              'ssms':np.zeros((batch_size, 3), dtype=np.float32), \
+              'chromas':np.zeros((batch_size, 3), dtype=np.float32), \
+              'early':np.zeros((batch_size, 3), dtype=np.float32)}
+    for bidx, index in enumerate(range(cmd_args.idx*batch_size,(cmd_args.idx+1)*batch_size)):
+        #print(all_pairs[index, 0], all_pairs[index, 1])
+        i = all_pairs[index, 0]
+        j = all_pairs[index, 1]
+        res = ef.similarity(i, j)
+        for s in res:
+            scores[s][bidx, :] = [i, j, res[s]]
+    print("Elapsed Time Batch %i: %.3g"%(cmd_args.idx, time.time()-tic))
     
-    #ef.similarity(all_pairs[cmd_args.idx, 0], all_pairs[cmd_args.idx, 1])
-    print('time passed {}'.format(time.monotonic()-start))
-    #ef.do_late_fusion()
-    #for similarity_type in ef.Ds:
-    #    ef.getEvalStatistics(similarity_type)
-    #ef.cleanup_memmap()
-    
-    if ef.log_times:
-        for s in ef.times:
-            print("%s: %.3g"%(s, np.mean(ef.times[s])))
-
-    print("... Done ....")
+    dd.io.save(filename, scores)
