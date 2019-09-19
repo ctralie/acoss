@@ -2,6 +2,7 @@
 import sys
 import imp
 import os
+import numpy
 from setuptools import setup, find_packages, Command
 from setuptools.extension import Extension
 from shutil import rmtree
@@ -26,6 +27,7 @@ ext_modules = Extension(
     sources=["acoss/benchmark/utils/alignment_tools/pySeqAlign.pyx"],
     extra_compile_args=extra_compile_args,
     extra_link_args=extra_link_args,
+    include_dirs=[numpy.get_include()],
     language="c++"
 )
 
@@ -77,7 +79,7 @@ setup(
     author='Furkan Yesiler, Albin Correya, Chris Traile, Philip Tovstogan, and Diego Silva',
     author_email='albin.correya@upf.edu',
     packages=find_packages(exclude=['_version.py']),
-    license='AGPL3.0',
+    license='AGPLv3',
     setup_requires=['cython'],
     ext_modules=cythonize(ext_modules, language_level=3),
     classifiers=[
