@@ -34,7 +34,7 @@ deploy:
   provider: script
   script:
     python3 setup.py bdist_wheel;
-    python3 setup.py upload
+    #python3 setup.py upload
   on:
     branch: packaging
     condition: $TRAVIS_BRANCH == "packaging" || -n $TRAVIS_TAG

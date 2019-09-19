@@ -11,7 +11,6 @@ import glob
 import os
 import deepdish as dd
 from joblib import Parallel, delayed
-from shutil import rmtree
 
 from .utils import log, read_txt_file, savelist_to_file, create_audio_path_batches
 from .features import AudioFeatures
@@ -162,7 +161,7 @@ if __name__ == '__main__':
     parser.add_argument("-a", "--audio_dir", action="store", default='',
                         help="path to the main audio directory of dataset")
     parser.add_argument("-p", "--feature_dir", action="store",
-                        help="path to directory where the audio features should be stored", default=FEATURE_DIR)
+                        help="path to directory where the audio features should be stored")
     parser.add_argument("-f", "--feature_list", action="store", type=str, default="['hpcp', 'key_extractor', "
                                                                                   "'crema', 'madmom_features', "
                                                                                   "'mfcc_htk']",

@@ -1,7 +1,4 @@
 # - * - coding: utf - 8 -
-"""
-TODO: setup pip wheels
-"""
 import sys
 import imp
 import os
@@ -53,7 +50,7 @@ class UploadCommand(Command):
     def run(self):
         try:
             self.status('Removing previous builds…')
-            rmtree(os.path.join(here, 'dist'))
+            rmtree(os.path.join(os.getcwd(), '/dist'))
         except OSError:
             pass
 
@@ -64,7 +61,7 @@ class UploadCommand(Command):
         os.system('twine upload dist/*')
 
         self.status('Pushing git tags…')
-        os.system('git tag v{0}'.format(about['__version__']))
+        os.system('git tag v{0}'.format(version))
         os.system('git push --tags')
 
         sys.exit()
@@ -77,7 +74,7 @@ setup(
     long_description=long_description,
     long_description_content_type='text/markdown',
     url='https://github.com/furkanyesiler/acoss',
-    author='Albin Correya, Furkan Yesiler, Chris Traile, Philip Tovstogan, and Diego Silva',
+    author='Furkan Yesiler, Albin Correya, Chris Traile, Philip Tovstogan, and Diego Silva',
     author_email='albin.correya@upf.edu',
     packages=find_packages(exclude=['_version.py']),
     license='AGPL3.0',
@@ -113,6 +110,6 @@ setup(
         'tests': []
     },
     cmdclass={
-        'clean': []
+        'upload': UploadCommand
     },
 )
