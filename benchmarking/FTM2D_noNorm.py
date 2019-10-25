@@ -94,15 +94,29 @@ class FTM2D(CoverAlgorithm):
         # Synchronize HPCP to the beats
         onsets = feats['madmom_features']['onsets']
         hpcp = librosa.util.sync(hpcp_orig, onsets, aggregate=np.median)
-        chroma = chrompwr(hpcp, self.PWR)    
+        chroma = chrompwr(hpcp, self.PWR)
+
+        # 0-pad the chroma
+        """
+        pad = np.zeros((12, PAD_LEN))
+        if chroma.shape[1] > PAD_LEN:
+            chroma = chroma[:, 0:PAD_LEN]
+        
+        pad[:, 0:chroma.shape[1]] = chroma
+        fft_mag = np.abs(scipy.fftpack.fft2(pad)) 
+        flat = fft_mag.flatten()
+        shingle = flat/(np.sqrt(np.sum(flat**2)))
+        """
+        # maybe use log as well
+        
         
         # Get all 2D FFT magnitude shingles
         
         
         shingles = btchroma_to_fftmat(chroma, self.WIN).T
-        Norm = np.sqrt(np.sum(shingles**2, 1))
-        Norm[Norm == 0] = 1
-        shingles = np.log(self.C*shingles/Norm[:, None] + 1)
+        # Norm = np.sqrt(np.sum(shingles**2, 1))
+        # Norm[Norm == 0] = 1
+        shingles = np.log(self.C*shingles + 1) #/Norm[:, None] + 1)
         shingle = np.median(shingles, 0) # Median aggregate
         shingle = shingle/np.sqrt(np.sum(shingle**2))
         
@@ -149,7 +163,7 @@ if __name__ == '__main__':
                                      formatter_class=argparse.ArgumentDefaultsHelpFormatter)
     parser.add_argument("-d", '--datapath', type=str, action="store", default='../features_covers80',
                         help="Path to data files")
-    parser.add_argument("-s", "--shortname", type=str, action="store", default="Covers80", help="Short name for dataset")
+    parser.add_argument("-s", "--shortname", type=str, action="store", default="Covers80_noNorm", help="Short name for dataset")
     parser.add_argument("-c", '--chroma_type', type=str, action="store", default='hpcp',
                         help="Type of chroma to use for experiments")
     parser.add_argument("-p", '--parallel', type=int, choices=(0, 1), action="store", default=0,
