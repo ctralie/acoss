@@ -18,7 +18,7 @@ from SimilarityFusion import *
 REC_SMOOTH = 9
 
 class StrucHash(CoverAlgorithm):
-    def __init__(self, datapath="../features_covers80", chroma_type='hcpc', shortname='Covers80', wins_per_block=20, K=5, niters=3, do_sync=True):
+    def __init__(self, datapath="../features_covers80", chroma_type='hcpc', shortname='Covers80', wins_per_block=20, K=10, niters=3, do_sync=True):
         """
         Attributes
         """
@@ -29,7 +29,7 @@ class StrucHash(CoverAlgorithm):
         self.niters = niters
         self.do_sync = do_sync
         self.shingles = {}
-        CoverAlgorithm.__init__(self, "FTM2D", datapath=datapath, shortname=shortname)
+        CoverAlgorithm.__init__(self, "Structured Hash", datapath=datapath, shortname=shortname)
     
     def get_cacheprefix(self):
         """
@@ -76,10 +76,14 @@ class StrucHash(CoverAlgorithm):
         Dmfcc_stack = get_ssm(mfcc_stack.T)
         # Chroma 
         Dhpcp_sync = get_csm_cosine(hpcp_sync.T, hpcp_sync.T)
-        Dhpcp_stack = get_csm_cosine(hpcp_stack.T, hpcp_stack)
+        Dhpcp_stack = get_csm_cosine(hpcp_stack.T, hpcp_stack.T)
+
+        N = min(Dhpcp_stack.shape[0], Dmfcc_stack.shape[0])
+        Dhpcp_stack = Dhpcp_stack[0:N, 0:N]
+        Dmfcc_stack = Dmfcc_stack[0:N, 0:N]
 
         FeatureNames = ['DMFCCs', 'Chroma']
-        Ds = [Dmfcc_sync, Dhpcp_sync]   
+        Ds = [Dmfcc_stack, Dhpcp_stack]   
 
         # Edge case: If it's too small, zeropad SSMs
         for i, Di in enumerate(Ds):
@@ -93,17 +97,15 @@ class StrucHash(CoverAlgorithm):
             pK = int(np.round(2*np.log(Ds[0].shape[0])/np.log(2)))
             print("Autotuned K = %i"%pK)
         # Do fusion on all features
-        Ws = [getW(D, pK) for D in Ds]
-        if REC_SMOOTH > 0:
-            df = librosa.segment.timelag_filter(scipy.ndimage.median_filter)
-            Ws = [df(W, size=(1, REC_SMOOTH)) for W in Ws]
+        Ws, WFused = doSimilarityFusionWs(Ds, K=pK, niters=self.niters)
+        WFused = doSimilarityFusionWs(Ws, K=pK, niters=self.niters)
 
-        WFused_sync = doSimilarityFusionWs(Ws, K=pK, niters=self.niters)
-
-        N = min(Dhpcp_stack.shape[0], Dmfcc_stack.shape[0])
-        Dhpcp_stack = Dhpcp_stack[0:N, 0:N]
-        Dmfcc_stack = Dmfcc_stack[0:N, 0:N]
+        fft_mag = np.abs(scipy.fftpack.fft2(WFused))
+        flat = fft_mag.flatten()
+        shingle = np.log(flat/(np.sqrt(np.sum(flat**2))) + 1)
         
+        
+
         # Get all 2D FFT magnitude shingles
         
         """
@@ -140,6 +142,14 @@ if __name__ == '__main__':
     parser.add_argument("-s", "--shortname", type=str, action="store", default="Covers80", help="Short name for dataset")
     parser.add_argument("-c", '--chroma_type', type=str, action="store", default='hpcp',
                         help="Type of chroma to use for experiments")
+    parser.add_argument("-w", '--wins_per_block', type=int, action="store", default=20,
+                        help="The number of windows per block.")
+    parser.add_argument("-t", '--niters', type=int, action="store", default=3,
+                        help="Number of iterations for similarity fusion.")
+    parser.add_argument("-k", '--K', type=int, action="store", default=5,
+                        help="The number of nearest neighbors for similarity fusion.")
+    parser.add_argument("-y", '--synchronous', type=bool, action="store", default=True,
+                        help="Do beat synchronous tracking or not.")
     parser.add_argument("-p", '--parallel', type=int, choices=(0, 1), action="store", default=0,
                         help="Parallel computing or not")
     parser.add_argument("-n", '--n_cores', type=int, action="store", default=1,
@@ -147,9 +157,10 @@ if __name__ == '__main__':
 
     cmd_args = parser.parse_args()
 
-    strucHash = StrucHash(cmd_args.datapath, cmd_args.chroma_type, cmd_args.shortname)
+    strucHash = StrucHash(cmd_args.datapath, cmd_args.chroma_type, cmd_args.shortname, \
+        cmd_args.wins_per_block, cmd_args.K, cmd_args.niters)
     for i in range(len(strucHash.filepaths)):
-        CoverAlgorithm.load_features(i)
+        strucHash.load_features(i)
     print('Feature loading done.')
     ftm2d.all_pairwise(cmd_args.parallel, cmd_args.n_cores, symmetric=True)
     for similarity_type in ftm2d.Ds.keys():
