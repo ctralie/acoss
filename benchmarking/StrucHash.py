@@ -9,6 +9,7 @@ import argparse
 from SimilarityFusion import doSimilarityFusionWs, getW
 import subprocess
 from scipy import sparse
+from sklearn.metrics.pairwise import euclidean_distances
 
 from skimage.transform import resize
 from FTM2D import *
@@ -126,6 +127,11 @@ class StrucHash(CoverAlgorithm):
         fft_mag = np.abs(scipy.fftpack.fft2(Wres))
         flat = fft_mag.flatten()
         shingle = np.log(flat/(np.sqrt(np.sum(flat**2))) + 1)
+        # Set all elements except for the 5*PAD_LEN largest elements to zero
+        cutoff = -np.partition(-shingle, PAD_LEN*5)[PAD_LEN*5-1]
+        shingle[shingle < cutoff] = 0
+        # Set to a sparse matrix to save memory and computation
+        shingle = sparse.csr_matrix(shingle)
 
         # Get all 2D FFT magnitude shingles
         
@@ -149,10 +155,10 @@ class StrucHash(CoverAlgorithm):
             j = idxs[k][1]
             s1 = self.load_features(i)
             s2 = self.load_features(j)
-            dSqr = np.sum((s1-s2)**2)
+            d = euclidean_distances(s1, s2)
             # Since similarity should be high for two things
             # with a small distance, take the negative exponential
-            sim = np.exp(-dSqr)
+            sim = np.exp(-d*d)
             self.Ds['main'][i, j] = sim
 
 if __name__ == '__main__':

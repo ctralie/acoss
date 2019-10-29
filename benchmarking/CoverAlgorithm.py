@@ -165,7 +165,7 @@ class CoverAlgorithm(object):
             else:
                 for idx, (i, j) in enumerate(all_pairs):
                     self.similarity(np.array([[i, j]]))
-                    if i%100 == 0:
+                    if idx%100 == 0:
                         print((i, j))
             if symmetric:
                 for similarity_type in self.Ds:
