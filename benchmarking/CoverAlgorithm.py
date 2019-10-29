@@ -221,7 +221,7 @@ class CoverAlgorithm(object):
             if i >= startidx + Ks[kidx]:
                 startidx += Ks[kidx]
                 kidx += 1
-                print(startidx)
+                # print(startidx)
                 if Ks[kidx] < 2:
                     # We're done once we get to a clique with less than 2
                     # since cliques are sorted in descending order
