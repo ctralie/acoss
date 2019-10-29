@@ -8,6 +8,7 @@ import librosa.display
 import argparse
 from SimilarityFusion import doSimilarityFusionWs, getW
 import subprocess
+from scipy import sparse
 
 from skimage.transform import resize
 from FTM2D import *
@@ -16,6 +17,14 @@ from CRPUtils import *
 from SimilarityFusion import *
 
 REC_SMOOTH = 9
+PAD_LEN  = 2000
+
+## Define a function that can plot the similarity images with higher contrast
+def getHighContrastImage(W, noisefloor = 0.1):
+    floor = np.quantile(W.flatten(), noisefloor)
+    WShow = np.log(W+floor)
+    np.fill_diagonal(WShow, 0)
+    return WShow
 
 class StrucHash(CoverAlgorithm):
     def __init__(self, datapath="../features_covers80", chroma_type='hcpc', shortname='Covers80', wins_per_block=20, K=10, niters=3, do_sync=True):
@@ -39,6 +48,7 @@ class StrucHash(CoverAlgorithm):
         return "%s/%s_%s_%s"%(self.cachedir, self.name, self.shortname, self.chroma_type)
     def load_features(self, i, do_plot=False):
         filepath = "%s_%i.h5"%(self.get_cacheprefix(), i)
+        figpath = "%s_%i.png"%(self.get_cacheprefix(), i)
         if i in self.shingles:
             # If the result has already been cached in memory, 
             # return the cache
@@ -96,10 +106,24 @@ class StrucHash(CoverAlgorithm):
             pK = int(np.round(2*np.log(Ds[0].shape[0])/np.log(2)))
             print("Autotuned K = %i"%pK)
         # Do fusion on all features
-        #Ws, WFused = doSimilarityFusionWs([Dmfcc_stack, Dhpcp_stack], K=pK, niters=self.niters)
-        WFused = doSimilarityFusionWs(Ds, K=pK, niters=self.niters)
+        Ws, WFused = doSimilarityFusion([Dmfcc_stack, Dhpcp_stack], K=pK, niters=self.niters)
 
-        fft_mag = np.abs(scipy.fftpack.fft2(WFused))
+        if do_plot:
+            plt.clf()
+            for i, W in enumerate(Ws):
+                plt.subplot(2, 2, i+1)
+                plt.imshow(getHighContrastImage(W))
+                plt.title(["MFCC", "HPCP"][i])
+                plt.colorbar()
+            plt.subplot(223)
+            plt.imshow(getHighContrastImage(WFused))
+            plt.title("Fused")
+            plt.savefig(figpath, bbox_inches='tight')
+        
+        N = min(PAD_LEN, WFused.shape[0])
+        Wres = np.zeros((PAD_LEN, PAD_LEN))
+        Wres[0:N, 0:N] = WFused[0:N, 0:N]
+        fft_mag = np.abs(scipy.fftpack.fft2(Wres))
         flat = fft_mag.flatten()
         shingle = np.log(flat/(np.sqrt(np.sum(flat**2))) + 1)
 
@@ -114,21 +138,22 @@ class StrucHash(CoverAlgorithm):
         shingle = shingle/np.sqrt(np.sum(shingle**2))
         """
 
-        if do_plot:
-            import librosa.display
-            plt.subplot(311)
-            librosa.display.specshow(librosa.amplitude_to_db(hpcp_orig, ref=np.max))
-            plt.title("Original")
-            plt.subplot(312)
-            librosa.display.specshow(librosa.amplitude_to_db(hpcp, ref=np.max))
-            plt.title("Beat-synchronous Median Aggregated")
-            plt.subplot(313)
-            plt.imshow(np.reshape(shingle, (hpcp.shape[0], self.wins_per_block)))
-            plt.title("Median FFT2D Mag Shingle")
-            plt.show()
         self.shingles[i] = shingle
         dd.io.save(filepath, {'shingle':shingle})
         return shingle
+
+    def similarity(self, idxs):
+        (a, b) = idxs.shape
+        for k in range(a):
+            i = idxs[k][0]
+            j = idxs[k][1]
+            s1 = self.load_features(i)
+            s2 = self.load_features(j)
+            dSqr = np.sum((s1-s2)**2)
+            # Since similarity should be high for two things
+            # with a small distance, take the negative exponential
+            sim = np.exp(-dSqr)
+            self.Ds['main'][i, j] = sim
 
 if __name__ == '__main__':
     #ftm2d_allpairwise_covers80(chroma_type='crema')
@@ -156,8 +181,9 @@ if __name__ == '__main__':
 
     strucHash = StrucHash(cmd_args.datapath, cmd_args.chroma_type, cmd_args.shortname, \
         cmd_args.wins_per_block, cmd_args.K, cmd_args.niters)
+    plt.figure(figsize=(15, 15))
     for i in range(len(strucHash.filepaths)):
-        strucHash.load_features(i)
+        strucHash.load_features(i, do_plot=False)
     print('Feature loading done.')
     strucHash.all_pairwise(cmd_args.parallel, cmd_args.n_cores, symmetric=True)
     for similarity_type in strucHash.Ds.keys():

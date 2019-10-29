@@ -165,7 +165,7 @@ class CoverAlgorithm(object):
             else:
                 for idx, (i, j) in enumerate(all_pairs):
                     self.similarity(np.array([[i, j]]))
-                    if idx%100 == 0:
+                    if i%100 == 0:
                         print((i, j))
             if symmetric:
                 for similarity_type in self.Ds:
@@ -195,12 +195,15 @@ class CoverAlgorithm(object):
         from itertools import chain
         D = np.array(self.Ds[similarity_type], dtype=np.float32)
         N = D.shape[0]
+        print("N = ", N)
         ## Step 1: Re-sort indices of D so that
         ## cover cliques are contiguous
         cliques = [list(self.cliques[s]) for s in self.cliques]
         Ks = np.array([len(c) for c in cliques]) # Length of each clique
+        print(Ks)
         # Sort cliques in descending order of number
         idx = np.argsort(-Ks)
+        print("idx.size = ", idx.size)
         Ks = Ks[idx]
         cliques = [cliques[i] for i in idx]
         # Unroll array of cliques and put distance matrix in
