@@ -53,15 +53,14 @@ class StrucHash(CoverAlgorithm):
 
         # Otherwise, compute the shingle
         import librosa.util
-        f = FTM2D()
-        feats = CoverAlgorithm.load_features(f, i)
+        feats = CoverAlgorithm.load_features(self, i)
 
         hpcp_orig = feats['crema']
         mfcc_orig = feats['mfcc_htk'].T
 
         # Synchronize HPCP to the beats
         onsets = feats['madmom_features']['onsets']
-        hpcp_sync = librosa.util.sync(hpcp_orig, onsets, aggregate=np.median)
+        hpcp_sync = librosa.util.sync(hpcp_orig.T, onsets, aggregate=np.median)
         hpcp_sync[np.isnan(hpcp_sync)] = 0
         hpcp_sync[np.isinf(hpcp_sync)] = 0
         mfcc_sync = librosa.util.sync(mfcc_orig.T, onsets, aggregate=np.mean)
@@ -97,14 +96,12 @@ class StrucHash(CoverAlgorithm):
             pK = int(np.round(2*np.log(Ds[0].shape[0])/np.log(2)))
             print("Autotuned K = %i"%pK)
         # Do fusion on all features
-        Ws, WFused = doSimilarityFusionWs(Ds, K=pK, niters=self.niters)
-        WFused = doSimilarityFusionWs(Ws, K=pK, niters=self.niters)
+        #Ws, WFused = doSimilarityFusionWs([Dmfcc_stack, Dhpcp_stack], K=pK, niters=self.niters)
+        WFused = doSimilarityFusionWs(Ds, K=pK, niters=self.niters)
 
         fft_mag = np.abs(scipy.fftpack.fft2(WFused))
         flat = fft_mag.flatten()
         shingle = np.log(flat/(np.sqrt(np.sum(flat**2))) + 1)
-        
-        
 
         # Get all 2D FFT magnitude shingles
         
@@ -162,9 +159,9 @@ if __name__ == '__main__':
     for i in range(len(strucHash.filepaths)):
         strucHash.load_features(i)
     print('Feature loading done.')
-    ftm2d.all_pairwise(cmd_args.parallel, cmd_args.n_cores, symmetric=True)
-    for similarity_type in ftm2d.Ds.keys():
-        ftm2d.getEvalStatistics(similarity_type)
-    ftm2d.cleanup_memmap()
+    strucHash.all_pairwise(cmd_args.parallel, cmd_args.n_cores, symmetric=True)
+    for similarity_type in strucHash.Ds.keys():
+        strucHash.getEvalStatistics(similarity_type)
+    strucHash.cleanup_memmap()
 
     print("... Done ....")
