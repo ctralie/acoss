@@ -160,6 +160,20 @@ class StrucHash(CoverAlgorithm):
             # with a small distance, take the negative exponential
             sim = np.exp(-d*d)
             self.Ds['main'][i, j] = sim
+    
+    def all_pairwise(self, parallel=0, n_cores=12, symmetric=False):
+        N = len(self.filepaths)
+        x = self.load_features(0).toarray()
+        X = sparse.csr_matrix((N, x.size))
+        for i in range(N):
+            X[i, :] = self.load_features(i)
+        tic = time.time()
+        XSqr = X.power(2)
+        XSqr = np.array(np.sum(XSqr, 1)).flatten()
+        DsSqr = XSqr[:, None] + XSqr[None, :] - 2*(X.dot(X.T)).toarray()
+        self.Ds['main'] = np.exp(-DsSqr)
+        print("Elapsed Time All Pairwise Fast: %.3g"%(time.time()-tic))
+
 
 if __name__ == '__main__':
     #ftm2d_allpairwise_covers80(chroma_type='crema')
