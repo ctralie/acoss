@@ -6,6 +6,7 @@ import glob
 import os
 import deepdish as dd
 import warnings
+import time
 
 
 class CoverAlgorithm(object):
@@ -147,6 +148,7 @@ class CoverAlgorithm(object):
             want to print the result statistics
         """
         from itertools import combinations, permutations
+        tic = time.time()
         h5filename = "%s_Ds.h5"%self.get_cacheprefix()
         if precomputed:
             self.Ds = dd.io.load(h5filename)
@@ -171,6 +173,7 @@ class CoverAlgorithm(object):
                 for similarity_type in self.Ds:
                     self.Ds[similarity_type] += self.Ds[similarity_type].T
             dd.io.save(h5filename, self.Ds)    
+        print("Elapsed Time All Pairwise: %.3g"%(time.time()-tic))
 
     def cleanup_memmap(self):
         """
