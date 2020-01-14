@@ -16,9 +16,14 @@ from FTM2D import *
 from CoverAlgorithm import *
 from CRPUtils import *
 from SimilarityFusion import *
+from Laplacian import *
 
-REC_SMOOTH = 9
-PAD_LEN  = 2000
+import torch
+from kymatio import Scattering2D
+import time
+
+WIN_FAC = 10
+FINAL_SIZE = 512
 
 ## Define a function that can plot the similarity images with higher contrast
 def getHighContrastImage(W, noisefloor = 0.1):
@@ -28,7 +33,7 @@ def getHighContrastImage(W, noisefloor = 0.1):
     return WShow
 
 class StrucHash(CoverAlgorithm):
-    def __init__(self, datapath="../features_covers80", chroma_type='hcpc', shortname='Covers80', wins_per_block=20, K=10, niters=3, do_sync=True):
+    def __init__(self, datapath="../features_covers80", chroma_type='crema', shortname='Covers80', wins_per_block=20, K=10, niters=10, norm_per_path=True):
         """
         Attributes
         """
@@ -37,9 +42,17 @@ class StrucHash(CoverAlgorithm):
         self.chroma_type = chroma_type
         self.K=K
         self.niters = niters
-        self.do_sync = do_sync
+        self.norm_per_path = norm_per_path
         self.shingles = {}
-        CoverAlgorithm.__init__(self, "Structured Hash", datapath=datapath, shortname=shortname)
+        CoverAlgorithm.__init__(self, "StructureHash", datapath=datapath, shortname=shortname)
+        print("Initializing scattering transform...")
+        J = 6
+        L = 8
+        NPaths = L*L*J*(J-1)/2 + J*L + 1
+        tic = time.time()
+        self.scattering = Scattering2D(shape=(FINAL_SIZE, FINAL_SIZE), J=J, L=L)#.cuda()
+        print("Elapsed Time: %.3g"%(time.time()-tic))
+        self.ITemp = torch.zeros((1, 1, FINAL_SIZE, FINAL_SIZE))
     
     def get_cacheprefix(self):
         """
@@ -49,6 +62,7 @@ class StrucHash(CoverAlgorithm):
         return "%s/%s_%s_%s"%(self.cachedir, self.name, self.shortname, self.chroma_type)
     def load_features(self, i, do_plot=False):
         filepath = "%s_%i.h5"%(self.get_cacheprefix(), i)
+        print(filepath)
         figpath = "%s_%i.png"%(self.get_cacheprefix(), i)
         if i in self.shingles:
             # If the result has already been cached in memory, 
@@ -64,36 +78,47 @@ class StrucHash(CoverAlgorithm):
 
         # Otherwise, compute the shingle
         import librosa.util
-        feats = CoverAlgorithm.load_features(self, i)
+        feats = CoverAlgorithm.load_features(self, i)       
 
-        hpcp_orig = feats['crema']
+        hop_length=512
+        sr=44100
+        hpcp_orig = feats['hpcp']
         mfcc_orig = feats['mfcc_htk'].T
+        tempogram_orig = librosa.feature.tempogram(onset_envelope=feats['madmom_features']['snovfn'], sr=sr, hop_length=hop_length).T
 
-        # Synchronize HPCP to the beats
-        onsets = feats['madmom_features']['onsets']
+        # Downsample
+        #onsets = feats['madmom_features']['onsets']
+        nHops = hpcp_orig.shape[0]-WIN_FAC*self.wins_per_block
+        onsets = np.arange(0, nHops, WIN_FAC)
+        
         hpcp_sync = librosa.util.sync(hpcp_orig.T, onsets, aggregate=np.median)
         hpcp_sync[np.isnan(hpcp_sync)] = 0
         hpcp_sync[np.isinf(hpcp_sync)] = 0
+        hpcp_stack = librosa.feature.stack_memory(hpcp_sync, n_steps = self.wins_per_block)
+        
         mfcc_sync = librosa.util.sync(mfcc_orig.T, onsets, aggregate=np.mean)
         mfcc_sync[np.isnan(mfcc_sync)] = 0
         mfcc_sync[np.isinf(mfcc_sync)] = 0
-
-        hpcp_stack = librosa.feature.stack_memory(hpcp_sync, n_steps = self.wins_per_block)
         mfcc_stack = librosa.feature.stack_memory(mfcc_sync, n_steps = self.wins_per_block)
 
+        tempogram_sync = librosa.util.sync(tempogram_orig.T, onsets, aggregate=np.mean)
+        tempogram_sync[np.isnan(tempogram_sync)] = 0
+        tempogram_sync[np.isinf(tempogram_sync)] = 0
+        tempogram_stack = librosa.feature.stack_memory(tempogram_sync, n_steps = self.wins_per_block)
+
         # MFCC use straight Euclidean SSM
-        Dmfcc_sync = get_ssm(mfcc_sync.T)
         Dmfcc_stack = get_ssm(mfcc_stack.T)
         # Chroma 
-        Dhpcp_sync = get_csm_cosine(hpcp_sync.T, hpcp_sync.T)
         Dhpcp_stack = get_csm_cosine(hpcp_stack.T, hpcp_stack.T)
+        # Tempogram with Euclidean
+        Dtempogram_stack = get_ssm(tempogram_stack.T)
 
-        N = min(Dhpcp_stack.shape[0], Dmfcc_stack.shape[0])
+        N = min(min(Dhpcp_stack.shape[0], Dmfcc_stack.shape[0]), Dtempogram_stack.shape[0])
         Dhpcp_stack = Dhpcp_stack[0:N, 0:N]
         Dmfcc_stack = Dmfcc_stack[0:N, 0:N]
 
-        FeatureNames = ['DMFCCs', 'Chroma']
-        Ds = [Dmfcc_stack, Dhpcp_stack]   
+        FeatureNames = ['DMFCCs', 'Chroma', 'Tempogram']
+        Ds = [Dmfcc_stack, Dhpcp_stack, Dtempogram_stack]   
 
         # Edge case: If it's too small, zeropad SSMs
         for i, Di in enumerate(Ds):
@@ -107,42 +132,33 @@ class StrucHash(CoverAlgorithm):
             pK = int(np.round(2*np.log(Ds[0].shape[0])/np.log(2)))
             print("Autotuned K = %i"%pK)
         # Do fusion on all features
-        Ws, WFused = doSimilarityFusion([Dmfcc_stack, Dhpcp_stack], K=pK, niters=self.niters)
+        Ws, WFused = doSimilarityFusion([Dmfcc_stack, Dhpcp_stack, Dtempogram_stack], K=pK, niters=self.niters)
+
+        WFused = resize(WFused, (FINAL_SIZE, FINAL_SIZE), anti_aliasing=True)
+
+        ## Step 2: Perform the 2D scattering transform
+        self.ITemp[0, 0, :, :] = torch.from_numpy(WFused)
+        resi = self.scattering(self.ITemp).numpy()
+        if self.norm_per_path:
+            # Normalize coefficients in a path
+            for ipath in range(resi.shape[2]):
+                path = resi[0, 0, ipath, :, :]
+                norm = np.sqrt(np.sum(path**2))
+                if norm > 0:
+                    resi[0, 0, ipath, :, :] /= norm
+        shingle = np.array(resi.flatten(), dtype=np.float32)
 
         if do_plot:
             plt.clf()
             for i, W in enumerate(Ws):
-                plt.subplot(2, 2, i+1)
+                plt.subplot(2, 3, i+1)
                 plt.imshow(getHighContrastImage(W))
-                plt.title(["MFCC", "HPCP"][i])
+                plt.title(FeatureNames[i])
                 plt.colorbar()
-            plt.subplot(223)
+            plt.subplot(234)
             plt.imshow(getHighContrastImage(WFused))
             plt.title("Fused")
             plt.savefig(figpath, bbox_inches='tight')
-        
-        N = min(PAD_LEN, WFused.shape[0])
-        Wres = np.zeros((PAD_LEN, PAD_LEN))
-        Wres[0:N, 0:N] = WFused[0:N, 0:N]
-        fft_mag = np.abs(scipy.fftpack.fft2(Wres))
-        flat = fft_mag.flatten()
-        shingle = np.log(flat/(np.sqrt(np.sum(flat**2))) + 1)
-        # Set all elements except for the 5*PAD_LEN largest elements to zero
-        cutoff = -np.partition(-shingle, PAD_LEN*5)[PAD_LEN*5-1]
-        shingle[shingle < cutoff] = 0
-        # Set to a sparse matrix to save memory and computation
-        shingle = sparse.csr_matrix(shingle)
-
-        # Get all 2D FFT magnitude shingles
-        
-        """
-        shingles = btchroma_to_fftmat(chroma, self.WIN).T
-        Norm = np.sqrt(np.sum(shingles**2, 1))
-        Norm[Norm == 0] = 1
-        shingles = np.log(self.C*shingles/Norm[:, None] + 1)
-        shingle = np.median(shingles, 0) # Median aggregate
-        shingle = shingle/np.sqrt(np.sum(shingle**2))
-        """
 
         self.shingles[i] = shingle
         dd.io.save(filepath, {'shingle':shingle})
@@ -155,28 +171,30 @@ class StrucHash(CoverAlgorithm):
             j = idxs[k][1]
             s1 = self.load_features(i)
             s2 = self.load_features(j)
-            d = euclidean_distances(s1, s2)
+            dSqr = np.sum((s1-s2)**2)
             # Since similarity should be high for two things
             # with a small distance, take the negative exponential
-            sim = np.exp(-d*d)
+            sim = np.exp(-dSqr)
             self.Ds['main'][i, j] = sim
     
     def all_pairwise(self, parallel=0, n_cores=12, symmetric=False):
-        print("All Pairwise Fast")
         N = len(self.filepaths)
-        x = self.load_features(0).toarray()
-        X = sparse.csr_matrix((N, x.size))
+        d = self.load_features(0).size
+        X = np.zeros((N,d))
         for i in range(N):
-            if i%100 == 0:
-                print(i)
             X[i, :] = self.load_features(i)
-        print("Sparsity Factor: %.3g"%(X.size/(X.shape[0]*X.shape[1])))
         tic = time.time()
-        XSqr = X.power(2)
-        XSqr = np.array(np.sum(XSqr, 1)).flatten()
-        DsSqr = XSqr[:, None] + XSqr[None, :] - 2*(X.dot(X.T)).toarray()
+        plt.subplot(131)
+        plt.imshow(X, aspect='auto')
+        plt.subplot(132)
+        #X = np.log(X)
+        plt.imshow(X, aspect='auto')
+        XSqr = np.sum(X**2, 1)
+        DsSqr = XSqr[:, None] + XSqr[None, :] - 2*(X.dot(X.T))
+        plt.subplot(133)
+        plt.imshow(DsSqr)
+        plt.show()
         self.Ds['main'] = np.exp(-DsSqr)
-        self.get_all_clique_ids()
         print("Elapsed Time All Pairwise Fast: %.3g"%(time.time()-tic))
 
 
@@ -206,7 +224,7 @@ if __name__ == '__main__':
 
     strucHash = StrucHash(cmd_args.datapath, cmd_args.chroma_type, cmd_args.shortname, \
         cmd_args.wins_per_block, cmd_args.K, cmd_args.niters)
-    plt.figure(figsize=(15, 15))
+    plt.figure(figsize=(12, 12))
     for i in range(len(strucHash.filepaths)):
         strucHash.load_features(i, do_plot=False)
     print('Feature loading done.')
