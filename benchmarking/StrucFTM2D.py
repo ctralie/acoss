@@ -28,7 +28,7 @@ def getHighContrastImage(W, noisefloor = 0.1):
     return WShow
 
 class StrucHash(CoverAlgorithm):
-    def __init__(self, datapath="../features_covers80", chroma_type='hcpc', shortname='Covers80', wins_per_block=20, K=10, niters=3, do_sync=True):
+    def __init__(self, datapath="../features_covers80", chroma_type='hcpc', shortname='Covers80', wins_per_block=20, K=10, niters=10, do_sync=True):
         """
         Attributes
         """
@@ -39,7 +39,7 @@ class StrucHash(CoverAlgorithm):
         self.niters = niters
         self.do_sync = do_sync
         self.shingles = {}
-        CoverAlgorithm.__init__(self, "Structured Hash", datapath=datapath, shortname=shortname)
+        CoverAlgorithm.__init__(self, "StrucFTM2D", datapath=datapath, shortname=shortname)
     
     def get_cacheprefix(self):
         """
@@ -65,35 +65,44 @@ class StrucHash(CoverAlgorithm):
         # Otherwise, compute the shingle
         import librosa.util
         feats = CoverAlgorithm.load_features(self, i)
-
-        hpcp_orig = feats['crema']
+        hop_length=512
+        sr=44100
+        hpcp_orig = feats['hpcp']
         mfcc_orig = feats['mfcc_htk'].T
+        tempogram_orig = librosa.feature.tempogram(onset_envelope=feats['madmom_features']['snovfn'], sr=sr, hop_length=hop_length).T
 
-        # Synchronize HPCP to the beats
+        # Downsample
         onsets = feats['madmom_features']['onsets']
+        
         hpcp_sync = librosa.util.sync(hpcp_orig.T, onsets, aggregate=np.median)
         hpcp_sync[np.isnan(hpcp_sync)] = 0
         hpcp_sync[np.isinf(hpcp_sync)] = 0
+        hpcp_stack = librosa.feature.stack_memory(hpcp_sync, n_steps = self.wins_per_block)
+        
         mfcc_sync = librosa.util.sync(mfcc_orig.T, onsets, aggregate=np.mean)
         mfcc_sync[np.isnan(mfcc_sync)] = 0
         mfcc_sync[np.isinf(mfcc_sync)] = 0
-
-        hpcp_stack = librosa.feature.stack_memory(hpcp_sync, n_steps = self.wins_per_block)
         mfcc_stack = librosa.feature.stack_memory(mfcc_sync, n_steps = self.wins_per_block)
 
+        tempogram_sync = librosa.util.sync(tempogram_orig.T, onsets, aggregate=np.mean)
+        tempogram_sync[np.isnan(tempogram_sync)] = 0
+        tempogram_sync[np.isinf(tempogram_sync)] = 0
+        tempogram_stack = librosa.feature.stack_memory(tempogram_sync, n_steps = self.wins_per_block)
+
         # MFCC use straight Euclidean SSM
-        Dmfcc_sync = get_ssm(mfcc_sync.T)
         Dmfcc_stack = get_ssm(mfcc_stack.T)
         # Chroma 
-        Dhpcp_sync = get_csm_cosine(hpcp_sync.T, hpcp_sync.T)
         Dhpcp_stack = get_csm_cosine(hpcp_stack.T, hpcp_stack.T)
+        # Tempogram with Euclidean
+        Dtempogram_stack = get_ssm(tempogram_stack.T)
 
-        N = min(Dhpcp_stack.shape[0], Dmfcc_stack.shape[0])
+        N = min(min(Dhpcp_stack.shape[0], Dmfcc_stack.shape[0]), Dtempogram_stack.shape[0])
         Dhpcp_stack = Dhpcp_stack[0:N, 0:N]
         Dmfcc_stack = Dmfcc_stack[0:N, 0:N]
+        Dtempogram_stack = Dtempogram_stack[0:N, 0:N]
 
-        FeatureNames = ['DMFCCs', 'Chroma']
-        Ds = [Dmfcc_stack, Dhpcp_stack]   
+        FeatureNames = ['DMFCCs', 'Chroma', 'Tempogram']
+        Ds = [Dmfcc_stack, Dhpcp_stack, Dtempogram_stack]  
 
         # Edge case: If it's too small, zeropad SSMs
         for i, Di in enumerate(Ds):

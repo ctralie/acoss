@@ -116,6 +116,7 @@ class StrucHash(CoverAlgorithm):
         N = min(min(Dhpcp_stack.shape[0], Dmfcc_stack.shape[0]), Dtempogram_stack.shape[0])
         Dhpcp_stack = Dhpcp_stack[0:N, 0:N]
         Dmfcc_stack = Dmfcc_stack[0:N, 0:N]
+        Dtempogram_stack = Dtempogram_stack[0:N, 0:N]
 
         FeatureNames = ['DMFCCs', 'Chroma', 'Tempogram']
         Ds = [Dmfcc_stack, Dhpcp_stack, Dtempogram_stack]   
