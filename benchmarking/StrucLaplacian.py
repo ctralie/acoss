@@ -51,9 +51,12 @@ class StrucHash(CoverAlgorithm):
         and distance matrices
         """
         return "%s/%s_%s_%s"%(self.cachedir, self.name, self.shortname, self.chroma_type)
+    
     def load_features(self, i, do_plot=False):
-        filepath = "%s_%i.h5"%(self.get_cacheprefix(), i)
-        figpath = "%s_%i.png"%(self.get_cacheprefix(), i)
+        num = self.filepaths[i].split("/")[-1].split(".h5")[0]
+        print(i, num)
+        filepath = "%s_%s.h5"%(self.get_cacheprefix(), num)
+        figpath = "%s_%s.png"%(self.get_cacheprefix(), num)
         if i in self.shingles:
             # If the result has already been cached in memory, 
             # return the cache
@@ -68,12 +71,11 @@ class StrucHash(CoverAlgorithm):
 
         # Otherwise, compute the shingle
         import librosa.util
-
         feats = CoverAlgorithm.load_features(self, i)       
 
         hop_length=512
         sr=44100
-        hpcp_orig = feats['hpcp']
+        hpcp_orig = feats[self.chroma_type]
         mfcc_orig = feats['mfcc_htk'].T
         tempogram_orig = librosa.feature.tempogram(onset_envelope=feats['madmom_features']['snovfn'], sr=sr, hop_length=hop_length).T
 
@@ -125,23 +127,28 @@ class StrucHash(CoverAlgorithm):
             pK = int(np.round(2*np.log(Ds[0].shape[0])/np.log(2)))
             print("Autotuned K = %i"%pK)
         # Do fusion on all features
-        Ws, WFused = doSimilarityFusion([Dmfcc_stack, Dhpcp_stack], K=pK, niters=self.niters)
+        Ws, WFused = doSimilarityFusion([Dmfcc_stack, Dhpcp_stack, Dtempogram_stack], K=pK, niters=self.niters)
         w, v = getRandomWalkLaplacianEigsDense(WFused)
         
 
         if do_plot:
             plt.clf()
             for i, W in enumerate(Ws):
-                plt.subplot(2, 2, i+1)
-                plt.imshow(getHighContrastImage(W))
-                plt.title(["MFCC", "HPCP"][i])
+                plt.subplot(2, 3, i+1)
+                plt.imshow(getHighContrastImage(W), cmap='magma_r')
+                plt.title(["MFCC", self.chroma_type, "Tempogram"][i])
                 plt.colorbar()
-            plt.subplot(223)
-            plt.imshow(getHighContrastImage(WFused))
+            plt.subplot(234)
+            plt.imshow(getHighContrastImage(WFused), cmap='magma_r')
             plt.title("Fused")
-            plt.subplot(224)
+            plt.subplot(235)
             plt.plot(w)
+            plt.xlim([0, 30])
             plt.title("Eigenvalues")
+            plt.subplot(236)
+            plt.imshow(v, cmap='magma_r', aspect='auto')
+            plt.xlim([0, 30])
+            plt.title("Eigenvectors")
             plt.savefig(figpath, bbox_inches='tight')
         
 
@@ -194,7 +201,7 @@ if __name__ == '__main__':
     parser.add_argument("-d", '--datapath', type=str, action="store", default='../features_covers80',
                         help="Path to data files")
     parser.add_argument("-s", "--shortname", type=str, action="store", default="Covers80", help="Short name for dataset")
-    parser.add_argument("-c", '--chroma_type', type=str, action="store", default='hpcp',
+    parser.add_argument("-c", '--chroma_type', type=str, action="store", default='crema',
                         help="Type of chroma to use for experiments")
     parser.add_argument("-w", '--wins_per_block', type=int, action="store", default=20,
                         help="The number of windows per block.")
@@ -213,7 +220,7 @@ if __name__ == '__main__':
 
     strucHash = StrucHash(cmd_args.datapath, cmd_args.chroma_type, cmd_args.shortname, \
         cmd_args.wins_per_block, cmd_args.K, cmd_args.niters)
-    plt.figure(figsize=(15, 15))
+    plt.figure(figsize=(15, 10))
     for i in range(len(strucHash.filepaths)):
         strucHash.load_features(i, do_plot=True)
     print('Feature loading done.')
