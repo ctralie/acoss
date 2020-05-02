@@ -97,16 +97,16 @@ def getWCSMSSM(SSMA, SSMB, CSMAB, K, Mu = 0.5):
     WCSMAB = getWCSM(CSMAB, k1, k2, Mu)
     return setupWCSMSSM(WSSMA, WSSMB, WCSMAB)
 
-def getP(W, diagRegularize = False):
+def getP(W, reg_diag = True):
     """
     Turn a similarity matrix into a proability matrix,
     with each row sum normalized to 1
     :param W: (MxM) Similarity matrix
-    :param diagRegularize: Whether or not to regularize
+    :param reg_diag: Whether or not to regularize
     the diagonal of this matrix
     :returns P: (MxM) Probability matrix
     """
-    if diagRegularize:
+    if reg_diag:
         P = 0.5*np.eye(W.shape[0])
         WNoDiag = np.array(W)
         np.fill_diagonal(WNoDiag, 0)
@@ -143,7 +143,7 @@ def getS(W, K):
     return S
 
 
-def doSimilarityFusionWs(Ws, K = 5, niters = 20, reg_diag = 1):
+def doSimilarityFusionWs(Ws, K = 5, niters = 20, reg_diag = True):
     """
     Perform similarity fusion between a set of exponentially
     weighted similarity matrices
@@ -155,7 +155,7 @@ def doSimilarityFusionWs(Ws, K = 5, niters = 20, reg_diag = 1):
     :return D: A fused NxN similarity matrix
     """
     #Full probability matrices
-    Ps = [getP(W) for W in Ws]
+    Ps = [getP(W, reg_diag) for W in Ws]
     #Nearest neighbor truncated matrices
     Ss = [getS(W, K) for W in Ws]
 
@@ -177,8 +177,6 @@ def doSimilarityFusionWs(Ws, K = 5, niters = 20, reg_diag = 1):
             #Need S*P*S^T, but have to multiply sparse matrix on the left
             tic = time.time()
             nextPts[i] = Ss[i].dot( (Ss[i].dot(nextPts[i].T)).T )
-            if reg_diag > 0:
-                nextPts[i][pix, pix] += reg_diag
         Pts = nextPts
     FusedScores = np.zeros(Pts[0].shape)
     for Pt in Pts:

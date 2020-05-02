@@ -78,9 +78,10 @@ class StrucHash(CoverAlgorithm):
         tempogram_orig = librosa.feature.tempogram(onset_envelope=feats['madmom_features']['snovfn'], sr=sr, hop_length=hop_length).T
 
         # Downsample
-        #onsets = feats['madmom_features']['onsets']
-        nHops = hpcp_orig.shape[0]-WIN_FAC*self.wins_per_block
-        onsets = np.arange(0, nHops, WIN_FAC)
+        onsets = feats['madmom_features']['onsets']
+        # Beat-track
+        #nHops = hpcp_orig.shape[0]-WIN_FAC*self.wins_per_block
+        #onsets = np.arange(0, nHops, WIN_FAC)
         
         hpcp_sync = librosa.util.sync(hpcp_orig.T, onsets, aggregate=np.median)
         hpcp_sync[np.isnan(hpcp_sync)] = 0
@@ -125,10 +126,8 @@ class StrucHash(CoverAlgorithm):
             print("Autotuned K = %i"%pK)
         # Do fusion on all features
         Ws, WFused = doSimilarityFusion([Dmfcc_stack, Dhpcp_stack], K=pK, niters=self.niters)
-
-        WFused = resize(WFused, (FINAL_SIZE, FINAL_SIZE), anti_aliasing=True)
         w, v = getRandomWalkLaplacianEigsDense(WFused)
-        shingle = w
+        
 
         if do_plot:
             plt.clf()
@@ -142,31 +141,13 @@ class StrucHash(CoverAlgorithm):
             plt.title("Fused")
             plt.subplot(224)
             plt.plot(w)
+            plt.title("Eigenvalues")
             plt.savefig(figpath, bbox_inches='tight')
         
-        """fft_mag = np.abs(scipy.fftpack.fft2(L))
-        flat = fft_mag.flatten()
-        shingle = np.log(flat/(np.sqrt(np.sum(flat**2))) + 1)
-        # Set all elements except for the 5*PAD_LEN largest elements to zero
-        cutoff = -np.partition(-shingle, PAD_LEN*5)[PAD_LEN*5-1]
-        shingle[shingle < cutoff] = 0
-        # Set to a sparse matrix to save memory and computation
-        shingle = sparse.csr_matrix(shingle)"""
-        
 
-        # Get all 2D FFT magnitude shingles
-        
-        """
-        shingles = btchroma_to_fftmat(chroma, self.WIN).T
-        Norm = np.sqrt(np.sum(shingles**2, 1))
-        Norm[Norm == 0] = 1
-        shingles = np.log(self.C*shingles/Norm[:, None] + 1)
-        shingle = np.median(shingles, 0) # Median aggregate
-        shingle = shingle/np.sqrt(np.sum(shingle**2))
-        """
-
+        dd.io.save(filepath, {'WFused':WFused, 'w':w, 'v':v})
+        shingle = w
         self.shingles[i] = shingle
-        dd.io.save(filepath, {'shingle':shingle})
         return shingle
 
     def similarity(self, idxs):
@@ -234,7 +215,7 @@ if __name__ == '__main__':
         cmd_args.wins_per_block, cmd_args.K, cmd_args.niters)
     plt.figure(figsize=(15, 15))
     for i in range(len(strucHash.filepaths)):
-        strucHash.load_features(i, do_plot=False)
+        strucHash.load_features(i, do_plot=True)
     print('Feature loading done.')
     strucHash.all_pairwise(cmd_args.parallel, cmd_args.n_cores, symmetric=True)
     for similarity_type in strucHash.Ds.keys():
