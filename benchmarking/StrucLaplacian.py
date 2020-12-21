@@ -62,6 +62,7 @@ class StrucHash(CoverAlgorithm):
             # return the cache
             return self.shingles[i]
         elif os.path.exists(filepath):
+            return
             # If the result has already been cached on disk, 
             # load it, save it in memory, and return
             self.shingles[i] = dd.io.load(filepath)['shingle']
@@ -128,7 +129,7 @@ class StrucHash(CoverAlgorithm):
             print("Autotuned K = %i"%pK)
         # Do fusion on all features
         Ws, WFused = doSimilarityFusion([Dmfcc_stack, Dhpcp_stack, Dtempogram_stack], K=pK, niters=self.niters)
-        w, v = getRandomWalkLaplacianEigsDense(WFused)
+        #w, v = getRandomWalkLaplacianEigsDense(WFused)
         
 
         if do_plot:
@@ -151,10 +152,14 @@ class StrucHash(CoverAlgorithm):
             plt.title("Eigenvectors")
             plt.savefig(figpath, bbox_inches='tight')
         
-
-        dd.io.save(filepath, {'WFused':WFused, 'w':w, 'v':v})
-        shingle = w
+        shingle = np.array([])
         self.shingles[i] = shingle
+        WFused = np.array(WFused, dtype=np.float32)
+        N = WFused.shape[0]
+        WFused = WFused[np.triu_indices(N)]
+        #v = np.array(v, dtype=np.float32)
+        #v = v[:, 0:100]
+        dd.io.save(filepath, {'WFused':WFused, 'N':N})
         return shingle
 
     def similarity(self, idxs):
@@ -222,7 +227,7 @@ if __name__ == '__main__':
         cmd_args.wins_per_block, cmd_args.K, cmd_args.niters)
     plt.figure(figsize=(15, 10))
     for i in range(len(strucHash.filepaths)):
-        strucHash.load_features(i, do_plot=True)
+        strucHash.load_features(i, do_plot=False)
     print('Feature loading done.')
     strucHash.all_pairwise(cmd_args.parallel, cmd_args.n_cores, symmetric=True)
     for similarity_type in strucHash.Ds.keys():

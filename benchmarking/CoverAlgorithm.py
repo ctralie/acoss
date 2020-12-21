@@ -74,6 +74,7 @@ class CoverAlgorithm(object):
         feats: dictionary
             Dictionary of features for the song
         """
+        print(self.filepaths[i])
         feats = dd.io.load(self.filepaths[i])
         # Keep track of what cover clique it's in
         if not feats['label'] in self.cliques:
@@ -212,6 +213,8 @@ class CoverAlgorithm(object):
         # Unroll array of cliques and put distance matrix in
         # contiguous order
         idx = np.array(list(chain(*cliques)), dtype=int)
+        import scipy.io as sio
+        sio.savemat("idx.mat", {"idx":idx})
         D = D[idx, :]
         D = D[:, idx]
         

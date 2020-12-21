@@ -20,6 +20,7 @@ from Laplacian import *
 
 import torch
 from kymatio import Scattering2D
+import mir_eval
 import time
 
 WIN_FAC = 10
@@ -50,7 +51,7 @@ class StrucHash(CoverAlgorithm):
         L = 8
         NPaths = L*L*J*(J-1)/2 + J*L + 1
         tic = time.time()
-        self.scattering = Scattering2D(shape=(FINAL_SIZE, FINAL_SIZE), J=J, L=L)#.cuda()
+        #self.scattering = Scattering2D(shape=(FINAL_SIZE, FINAL_SIZE), J=J, L=L)#.cuda()
         print("Elapsed Time: %.3g"%(time.time()-tic))
         self.ITemp = torch.zeros((1, 1, FINAL_SIZE, FINAL_SIZE))
     
@@ -90,6 +91,7 @@ class StrucHash(CoverAlgorithm):
         #onsets = feats['madmom_features']['onsets']
         nHops = hpcp_orig.shape[0]-WIN_FAC*self.wins_per_block
         onsets = np.arange(0, nHops, WIN_FAC)
+        times = onsets*float(hop_length)/float(sr)
         
         hpcp_sync = librosa.util.sync(hpcp_orig.T, onsets, aggregate=np.median)
         hpcp_sync[np.isnan(hpcp_sync)] = 0
@@ -122,11 +124,11 @@ class StrucHash(CoverAlgorithm):
         Ds = [Dmfcc_stack, Dhpcp_stack, Dtempogram_stack]   
 
         # Edge case: If it's too small, zeropad SSMs
-        for i, Di in enumerate(Ds):
+        for k, Di in enumerate(Ds):
             if Di.shape[0] < 2*self.K:
                 D = np.zeros((2*self.K, 2*self.K))
                 D[0:Di.shape[0], 0:Di.shape[1]] = Di
-                Ds[i] = D
+                Ds[k] = D
 
         pK = self.K
         if self.K == -1:
@@ -135,9 +137,28 @@ class StrucHash(CoverAlgorithm):
         # Do fusion on all features
         Ws, WFused = doSimilarityFusion([Dmfcc_stack, Dhpcp_stack, Dtempogram_stack], K=pK, niters=self.niters)
 
+        lapfn = getRandomWalkLaplacianEigsDense
+        neigs = 10
+        specfn = lambda v, dim, times: spectralClusterSequential(v, dim, times, rownorm=False)
+        vs = lapfn(WFused)
+        labels = [specfn(vs, k, times) for k in range(2, neigs+1)]
+        specintervals_hier = [res['intervals_hier'] for res in labels]
+        speclabels_hier = [res['labels_hier'] for res in labels]
+        interval = 0.25
+        L = np.asarray(mir_eval.hierarchy._meet(specintervals_hier, speclabels_hier, interval).todense())
+        L = resize(L, (FINAL_SIZE, FINAL_SIZE), anti_aliasing=True)
         WFused = resize(WFused, (FINAL_SIZE, FINAL_SIZE), anti_aliasing=True)
+        sio.savemat("%i.mat"%i, {"W":WFused, "L":L})
+        plt.clf()
+        plt.subplot(121)
+        plt.imshow(getHighContrastImage(WFused), cmap='magma_r')
+        plt.subplot(122)
+        plt.imshow(L, cmap='magma_r')
+        plt.colorbar()
+        plt.savefig("%i.png"%i, bbox_inches='tight')
 
         ## Step 2: Perform the 2D scattering transform
+        """
         self.ITemp[0, 0, :, :] = torch.from_numpy(WFused)
         resi = self.scattering(self.ITemp).numpy()
         if self.norm_per_path:
@@ -148,6 +169,7 @@ class StrucHash(CoverAlgorithm):
                 if norm > 0:
                     resi[0, 0, ipath, :, :] /= norm
         shingle = np.array(resi.flatten(), dtype=np.float32)
+        """
 
         if do_plot:
             plt.clf()
@@ -161,9 +183,10 @@ class StrucHash(CoverAlgorithm):
             plt.title("Fused")
             plt.savefig(figpath, bbox_inches='tight')
 
-        self.shingles[i] = shingle
-        dd.io.save(filepath, {'shingle':shingle})
-        return shingle
+        #self.shingles[i] = shingle
+        #dd.io.save(filepath, {'shingle':shingle})
+        #return shingle
+        return np.array([])
 
     def similarity(self, idxs):
         (a, b) = idxs.shape
@@ -185,16 +208,8 @@ class StrucHash(CoverAlgorithm):
         for i in range(N):
             X[i, :] = self.load_features(i)
         tic = time.time()
-        plt.subplot(131)
-        plt.imshow(X, aspect='auto')
-        plt.subplot(132)
-        #X = np.log(X)
-        plt.imshow(X, aspect='auto')
         XSqr = np.sum(X**2, 1)
         DsSqr = XSqr[:, None] + XSqr[None, :] - 2*(X.dot(X.T))
-        plt.subplot(133)
-        plt.imshow(DsSqr)
-        plt.show()
         self.Ds['main'] = np.exp(-DsSqr)
         print("Elapsed Time All Pairwise Fast: %.3g"%(time.time()-tic))
 
