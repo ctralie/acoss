@@ -22,7 +22,7 @@ class CoverAlgorithm(object):
         A dictionary of pairwise similarity matrices, whose 
         indices index into filepaths.
     """
-    def __init__(self, name = "Generic", datapath="features_benchmark", shortname="full", cachedir="cache", similarity_types = ["main"]):
+    def __init__(self, name = "Generic", datapath="features_benchmark", shortname="full", cachedir="cache", similarity_types = ["main"], do_memmaps = True):
         """
         Parameters
         ----------
@@ -38,14 +38,16 @@ class CoverAlgorithm(object):
         self.name = name
         self.shortname = shortname
         self.cachedir = cachedir
-        self.filepaths = glob.glob("%s/*.h5" % datapath)
+        self.filepaths = sorted(glob.glob("%s/*.h5" % datapath))
         self.cliques = {}
         self.N = len(self.filepaths)
         if not os.path.exists(cachedir):
             os.mkdir(cachedir)
-        self.Ds = {}
-        for s in similarity_types:
-            self.Ds[s] = np.memmap('%s_%s_dmat' % (self.get_cacheprefix(), s), shape=(self.N, self.N), mode='w+', dtype='float32')
+        self.do_memmaps = do_memmaps
+        if do_memmaps:
+            self.Ds = {}
+            for s in similarity_types:
+                self.Ds[s] = np.memmap('%s_%s_dmat' % (self.get_cacheprefix(), s), shape=(self.N, self.N), mode='w+', dtype='float32')
         print("Initialized %s algorithm on %i songs in dataset %s"%(name, self.N, shortname))
     
     def get_cacheprefix(self):
