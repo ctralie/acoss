@@ -177,6 +177,59 @@ class CoverAlgorithm(object):
             dd.io.save(h5filename, self.Ds)    
         print("Elapsed Time All Pairwise: %.3g"%(time.time()-tic))
 
+    def do_batch(self, w, idx, fileprefix):
+        """
+        Compute and save a block of similarities
+        Parameters
+        ----------
+        w: int
+            Size of block (assumed that total number of songs is divisible
+            by this number)
+        idx: int
+            Batch index
+        fileprefix: string
+            Prefix of path to which to save the results
+        """
+        N = len(self.filepaths)
+        # Split up into squares to minimize features that need to be loaded
+        # between two sets of songs
+        # Assuming N is divisible by w
+        res = int(N/w)
+        I, J = np.meshgrid(np.arange(res), np.arange(res))
+        I, J = I.flatten(), J.flatten()
+        I, J = I[I >= J], J[I >= J]
+        i = I[idx]
+        j = J[idx]
+        I, J = np.meshgrid(np.arange(w), np.arange(w))
+        idxs = np.array([I.flatten()+i*w, J.flatten()+j*w]).T
+        idxs = idxs[idxs[:, 0] < N, :]
+        idxs = idxs[idxs[:, 1] < N, :]
+        idxs = idxs[idxs[:, 0] >= idxs[:, 1], :]
+        similarities = self.similarity(idxs)
+        similarities['idxs'] = idxs
+        dd.io.save("{}_{}.h5".format(fileprefix, idx), similarities)
+    
+    def load_batches(self, fileprefix):
+        """
+        Compute and save a block of similarities
+        Parameters
+        ----------
+        fileprefix: string
+            Prefix of path to find the results
+        """
+        files = glob.glob("{}*.h5".format(fileprefix))
+        for key in self.Ds.keys():
+            self.Ds[key] = np.zeros_like(self.Ds[key])
+        for f in files:
+            res = dd.io.load(f)
+            idxs = res['idxs']
+            I = idxs[:, 0]
+            J = idxs[:, 1]
+            for key in self.Ds.keys():
+                self.Ds[key][I, J] += res[key]
+                self.Ds[key][J, I] += res[key]
+        self.get_all_clique_ids()
+
     def cleanup_memmap(self):
         """
         Remove all memmap variables for song-level similarity matrices

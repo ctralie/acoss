@@ -57,6 +57,9 @@ class Serra09(CoverAlgorithm):
             mfcc[np.isinf(mfcc)] = 0
             mfcc = librosa.util.sync(mfcc, np.arange(0, mfcc.shape[1], self.downsample_fac), aggregate=np.mean)
             mfcc_stacked = librosa.feature.stack_memory(mfcc, self.tau, self.m).T
+            mag = np.sqrt(np.sum(mfcc_stacked**2, 1))
+            mag[mag == 0] = 1
+            mfcc_stacked /= mag[:, None]
 
             ## Step 3: Save away features
             feats = {'gchroma':gchroma, 'chroma_stacked':chroma_stacked, 'mfcc_stacked':mfcc_stacked}
@@ -102,7 +105,7 @@ if __name__ == '__main__':
     parser.add_argument("-n", '--n_cores', type=int, action="store", default=1,
                         help="No of cores required for parallelization")
     parser.add_argument("-r", "--range", type=str, action="store", default="")
-    parser.add_argument("-a", "--aggregate", type=str, action="store", default="")
+    parser.add_argument("-b", "--batch_path", type=str, action="store", default="")
 
     cmd_args = parser.parse_args()
     
@@ -111,25 +114,10 @@ if __name__ == '__main__':
         do_memmaps = False
     serra09 = Serra09(cmd_args.datapath, cmd_args.chroma_type, cmd_args.shortname, do_memmaps=do_memmaps)
     
-    if len(cmd_args.aggregate) > 0:
+    if len(cmd_args.batch_path) > 0:
         # Aggregrate precomputed similarities
-        files = glob.glob("{}/serra*.h5".format(cmd_args.aggregate))
-        for key in serra09.Ds.keys():
-            serra09.Ds[key] = np.zeros_like(serra09.Ds[key])
-        for f in files:
-            res = dd.io.load(f)
-            idxs = res['idxs']
-            I = idxs[:, 0]
-            J = idxs[:, 1]
-            for key in serra09.Ds.keys():
-                serra09.Ds[key][I, J] += res[key]
-                serra09.Ds[key][J, I] += res[key]
-        serra09.get_all_clique_ids()
+        serra09.load_batches(cmd_args.batch_path)
         for similarity_type in serra09.Ds.keys():
-            import matplotlib.pyplot as plt
-            plt.imshow(serra09.Ds[similarity_type])
-            plt.title(similarity_type)
-            plt.show()
             serra09.getEvalStatistics(similarity_type)
     else:
         if do_memmaps:
@@ -142,23 +130,7 @@ if __name__ == '__main__':
         else:
             # Do only a range and save it
             [w, idx] = [int(s) for s in cmd_args.range.split("-")]
-            N = len(serra09.filepaths)
-            # Split up into squares to minimize features that need to be loaded
-            # between two sets of songs
-            res = int(N/w)
-            I, J = np.meshgrid(np.arange(res), np.arange(res))
-            I, J = I.flatten(), J.flatten()
-            I, J = I[I >= J], J[I >= J]
-            i = I[idx]
-            j = J[idx]
-            I, J = np.meshgrid(np.arange(w), np.arange(w))
-            idxs = np.array([I.flatten()+i*w, J.flatten()+j*w]).T
-            idxs = idxs[idxs[:, 0] < N, :]
-            idxs = idxs[idxs[:, 1] < N, :]
-            idxs = idxs[idxs[:, 0] >= idxs[:, 1], :]
-            similarities = serra09.similarity(idxs)
-            similarities['idxs'] = idxs
-            dd.io.save("cache/serra_{}.h5".format(idx), similarities)
+            serra09.do_batch(w, idx, "cache/serra")
     
     print("... Done ....")
 
