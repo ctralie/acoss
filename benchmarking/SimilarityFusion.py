@@ -70,6 +70,67 @@ def get_W(D, K, Mu = 0.5):
     W = np.exp(-DSym**2/Denom)
     return W
 
+
+def get_WCSM(CSMAB, k1, k2, Mu = 0.5):
+    """
+    Get a cross similarity matrix from a cross dissimilarity matrix
+    :param CSMAB: Cross-similarity matrix
+    :param k1: Number of neighbors across rows
+    :param k2: Number of neighbors down columns
+    :param Mu: Nearest neighbor hyperparameter
+    :returns W: Exponential weighted similarity matrix
+    """
+    Neighbs1 = np.partition(CSMAB, k2, 1)[:, 0:k2]
+    MeanDist1 = np.mean(Neighbs1, 1)
+    Neighbs2 = np.partition(CSMAB, k1, 0)[0:k1, :]
+    MeanDist2 = np.mean(Neighbs2, 0)
+    Eps = MeanDist1[:, None] + MeanDist2[None, :] + CSMAB
+    Eps /= 3
+    return np.exp(-CSMAB**2/(2*(Mu*Eps)**2))
+
+def setup_WCSMSSM(WSSMA, WSSMB, WCSMAB):
+    """
+    Get the following kernel cross-similarity matrix
+                [ WSSMA      WCSMAB ]
+                [ WCSMBA^T   WSSMB  ]
+    :param WSSMA: W matrix for upper left SSM part
+    :param WSSMB: W matrix for lower SSM part
+    :param WCSMAB: Cross-similarity part
+    :returns: Matrix with them all together
+    """
+    M = WSSMA.shape[0]
+    N = WSSMB.shape[0]
+    W = np.zeros((N+M, N+M))
+    W[0:M, 0:M] = WSSMA
+    W[0:M, M::] = WCSMAB
+    W[M::, 0:M] = WCSMAB.T
+    W[M::, M::] = WSSMB
+    return W
+
+def get_WCSMSSM(SSMA, SSMB, CSMAB, K, Mu = 0.5):
+    """
+    Cross-Affinity Matrix.  Do a special weighting of nearest neighbors
+    so that there are a proportional number of similarity neighbors
+    and cross neighbors
+    :param SSMA: MxM self-similarity matrix for signal A
+    :param SSMB: NxN self-similarity matrix for signal B
+    :param CSMAB: MxN cross-similarity matrix between A and B
+    :param K: Total number of nearest neighbors per row used
+        to tune exponential threshold
+    :param Mu: Hyperparameter for nearest neighbors
+    :return W: Parent W matrix
+    """
+    M = SSMA.shape[0]
+    N = SSMB.shape[0]
+    #Split the neighbors evenly between the CSM
+    #and SSM parts of each row
+    k1 = int(K*float(M)/(M+N))
+    k2 = K - k1
+    WSSMA = get_W(SSMA, k1, Mu)
+    WSSMB = get_W(SSMB, k2, Mu)
+    WCSMAB = get_WCSM(CSMAB, k1, k2, Mu)
+    return setup_WCSMSSM(WSSMA, WSSMB, WCSMAB)
+
 def get_P(W, reg_diag = False):
     """
     Turn a similarity matrix into a proability matrix,
@@ -215,8 +276,7 @@ def snf_ws(Ws, K = 5, niters = 20, reg_diag = True, \
         print("Total Time multiplying: %g"%np.sum(np.array(AllTimes)))
     return fused_score(Pts)
 
-def snf(Scores, K = 5, niters = 20, reg_diag = True, \
-        reg_neighbs = 0.5, do_animation = False):
+def snf(Scores, K = 5, niters = 20, reg_diag = True, do_animation = False):
     """
     Do similarity fusion on a set of NxN distance matrices.
     Parameters the same as snf_ws

@@ -1,7 +1,9 @@
 # -*- coding: utf-8 -*-
 from pySeqAlign import qmax, dmax
 from CoverAlgorithm import *
+from Serra09 import *
 from CRPUtils import *
+from SimilarityFusion import *
 import numpy as np
 import argparse
 import librosa
@@ -13,7 +15,7 @@ def global_chroma(chroma):
         raise IOError("Wrong axis for the input chroma array. Expected shape '(frame_size, bin_size)'")
     return np.divide(chroma.sum(axis=0), np.max(chroma.sum(axis=0)))
 
-class Serra09(CoverAlgorithm):
+class EarlySNF(Serra09):
     """
     Attributes
     ----------
@@ -37,60 +39,47 @@ class Serra09(CoverAlgorithm):
         self.m = m
         self.downsample_fac = downsample_fac
         self.all_feats = {} # For caching features (global chroma and stacked chroma)
-        CoverAlgorithm.__init__(self, "Serra09", datapath=datapath, shortname=shortname, do_memmaps=do_memmaps, similarity_types=["chroma_qmax", "chroma_dmax", "mfcc_qmax", "mfcc_dmax"])
-
-    def load_features(self, i):
-        if not i in self.all_feats:
-            feats = CoverAlgorithm.load_features(self, i)
-            ## Step 1: Compute chroma embeddings
-            # First compute global chroma (used for OTI later)
-            chroma = feats[self.chroma_type]
-            gchroma = global_chroma(chroma)
-            # Now downsample the chromas using median aggregation
-            chroma = librosa.util.sync(chroma.T, np.arange(0, chroma.shape[0], self.downsample_fac), aggregate=np.median)
-            # Finally, do a stacked delay embedding
-            chroma_stacked = librosa.feature.stack_memory(chroma, self.tau, self.m).T
-            
-            ## Step 2: Compute MFCC Embeddings
-            mfcc = feats['mfcc_htk']
-            mfcc[np.isnan(mfcc)] = 0
-            mfcc[np.isinf(mfcc)] = 0
-            mfcc = librosa.util.sync(mfcc, np.arange(0, mfcc.shape[1], self.downsample_fac), aggregate=np.mean)
-            mfcc_stacked = librosa.feature.stack_memory(mfcc, self.tau, self.m).T
-            mag = np.sqrt(np.sum(mfcc_stacked**2, 1))
-            mag[mag == 0] = 1
-            mfcc_stacked /= mag[:, None]
-
-            ## Step 3: Save away features
-            # Chop down features so they have the same length (makes fusion easier later)
-            N = min(chroma_stacked.shape[0], mfcc_stacked.shape[0])
-            chroma_stacked = chroma_stacked[0:N, :]
-            mfcc_stacked = mfcc_stacked[0:N, :]
-            feats = {'gchroma':gchroma, 'chroma_stacked':chroma_stacked, 'mfcc_stacked':mfcc_stacked}
-            self.all_feats[i] = feats
-        return self.all_feats[i]
+        CoverAlgorithm.__init__(self, "EarlySNF", datapath=datapath, shortname=shortname, do_memmaps=do_memmaps, similarity_types=["chroma_qmax", "chroma_dmax", "mfcc_qmax", "mfcc_dmax", "snf_qmax", "snf_dmax"])
 
     def similarity(self, idxs):
         N = idxs.shape[0]
-        similarities = {'chroma_qmax':np.zeros(N), 'chroma_dmax':np.zeros(N), 'mfcc_qmax':np.zeros(N), 'mfcc_dmax':np.zeros(N)}
+        similarities = {'chroma_qmax':np.zeros(N), 'chroma_dmax':np.zeros(N), 'mfcc_qmax':np.zeros(N), 'mfcc_dmax':np.zeros(N), "snf_qmax":np.zeros(N), "snf_dmax":np.zeros(N)}
         for idx, (i,j) in enumerate(zip(idxs[:, 0], idxs[:, 1])):
             Si = self.load_features(i)
             Sj = self.load_features(j)
-            ## Step 1: Do chroma similarities
+            Ws = []
+            ## Step 1: Get chroma matrices
             csm = get_csm_blocked_oti(Si['chroma_stacked'], Sj['chroma_stacked'], Si['gchroma'], Sj['gchroma'], get_csm_euclidean)
-            csm = csm_to_binary(csm, self.kappa)
             M, N = csm.shape[0], csm.shape[1]
+            K = int(self.kappa*(M+N))
+            ssma = get_ssm(Si['chroma_stacked'])
+            ssmb = get_ssm(Sj['chroma_stacked'])
+            Ws.append(get_WCSMSSM(ssma, ssmb, csm, K))
+            # Might as well do Serra09 while we're at it
+            csm = csm_to_binary(csm, self.kappa)
             D = np.zeros(M*N, dtype=np.float32)
             similarities['chroma_qmax'][idx] = qmax(csm.flatten(), D, M, N) / (M+N)
             similarities['chroma_dmax'][idx] = dmax(csm.flatten(), D, M, N) / (M+N)
 
-            ## Step 2: Do MFCC similarities
+            ## Step 2: Get mfcc matrices
             csm = get_csm(Si['mfcc_stacked'], Sj['mfcc_stacked'])
+            ssma = get_ssm(Si['mfcc_stacked'])
+            ssmb = get_ssm(Sj['mfcc_stacked'])
+            Ws.append(get_WCSMSSM(ssma, ssmb, csm, K))
+            # Might as well do Serra09 while we're at it
             csm = csm_to_binary(csm, self.kappa)
-            M, N = csm.shape[0], csm.shape[1]
             D = np.zeros(M*N, dtype=np.float32)
             similarities['mfcc_qmax'][idx] = qmax(csm.flatten(), D, M, N) / (M+N)
             similarities['mfcc_dmax'][idx] = dmax(csm.flatten(), D, M, N) / (M+N)
+
+            ## Step 3: Do early fusion
+            csm = snf_ws(Ws, K = K, niters = 5, reg_diag = True, verbose_times=False)
+            csm = -csm[0:M, 0:N] # Do negative since this is a similarity but binary csm expects difference
+            csm = csm_to_binary(csm, self.kappa)
+            D = np.zeros(M*N, dtype=np.float32)
+            similarities['snf_qmax'][idx] = qmax(csm.flatten(), D, M, N) / (M+N)
+            similarities['snf_dmax'][idx] = dmax(csm.flatten(), D, M, N) / (M+N)
+
             if self.do_memmaps:
                 for key in self.Ds.keys():
                     self.Ds[key][i][j] = similarities[key][idx]
@@ -116,25 +105,25 @@ if __name__ == '__main__':
     do_memmaps = True
     if (len(cmd_args.range) > 0):
         do_memmaps = False
-    serra09 = Serra09(cmd_args.datapath, cmd_args.chroma_type, cmd_args.shortname, do_memmaps=do_memmaps)
+    earlySNF = EarlySNF(cmd_args.datapath, cmd_args.chroma_type, cmd_args.shortname, do_memmaps=do_memmaps)
     
     if len(cmd_args.batch_path) > 0:
         # Aggregrate precomputed similarities
-        serra09.load_batches(cmd_args.batch_path)
-        for similarity_type in serra09.Ds.keys():
-            serra09.getEvalStatistics(similarity_type)
+        earlySNF.load_batches(cmd_args.batch_path)
+        for similarity_type in earlySNF.Ds.keys():
+            earlySNF.getEvalStatistics(similarity_type)
     else:
         if do_memmaps:
             # Do the whole thing
-            serra09.all_pairwise(cmd_args.parallel, cmd_args.n_cores, symmetric=True)
-            for similarity_type in serra09.Ds.keys():
+            earlySNF.all_pairwise(cmd_args.parallel, cmd_args.n_cores, symmetric=True)
+            for similarity_type in earlySNF.Ds.keys():
                 print(similarity_type)
-                serra09.getEvalStatistics(similarity_type)
-            serra09.cleanup_memmap()
+                earlySNF.getEvalStatistics(similarity_type)
+            earlySNF.cleanup_memmap()
         else:
             # Do only a range and save it
             [w, idx] = [int(s) for s in cmd_args.range.split("-")]
-            serra09.do_batch(w, idx, "cache/serra")
+            earlySNF.do_batch(w, idx, "cache/earlysnf")
     
     print("... Done ....")
 
