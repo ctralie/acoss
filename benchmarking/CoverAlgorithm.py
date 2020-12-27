@@ -44,6 +44,7 @@ class CoverAlgorithm(object):
         if not os.path.exists(cachedir):
             os.mkdir(cachedir)
         self.do_memmaps = do_memmaps
+        self.similarity_types = similarity_types
         if do_memmaps:
             self.Ds = {}
             for s in similarity_types:

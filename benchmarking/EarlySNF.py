@@ -9,12 +9,6 @@ import argparse
 import librosa
 
 
-def global_chroma(chroma):
-    """Computes global chroma of a input chroma vector"""
-    if chroma.shape[1] not in [12, 24, 36]:
-        raise IOError("Wrong axis for the input chroma array. Expected shape '(frame_size, bin_size)'")
-    return np.divide(chroma.sum(axis=0), np.max(chroma.sum(axis=0)))
-
 class EarlySNF(Serra09):
     """
     Attributes
@@ -74,7 +68,7 @@ class EarlySNF(Serra09):
 
             ## Step 3: Do early fusion
             csm = snf_ws(Ws, K = K, niters = 5, reg_diag = True, verbose_times=False)
-            csm = -csm[0:M, 0:N] # Do negative since this is a similarity but binary csm expects difference
+            csm = -csm[0:M, M::] # Do negative since this is a similarity but binary csm expects difference
             csm = csm_to_binary(csm, self.kappa)
             D = np.zeros(M*N, dtype=np.float32)
             similarities['snf_qmax'][idx] = qmax(csm.flatten(), D, M, N) / (M+N)
@@ -86,7 +80,7 @@ class EarlySNF(Serra09):
         return similarities
 
 if __name__ == '__main__':
-    parser = argparse.ArgumentParser(description="Benchmarking with Joan Serra's Cover id algorithm",
+    parser = argparse.ArgumentParser(description="Benchmarking with early fusion + QMax/DMax",
                                      formatter_class=argparse.ArgumentDefaultsHelpFormatter)
     parser.add_argument("-d", '--datapath', type=str, action="store", default='../features_covers80',
                         help="Path to data files")
