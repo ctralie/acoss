@@ -5,7 +5,9 @@ from CRPUtils import *
 import numpy as np
 import argparse
 import librosa
+from skimage.transform import resize
 
+COMMON_SIZE = -1
 
 def global_chroma(chroma):
     """Computes global chroma of a input chroma vector"""
@@ -27,13 +29,11 @@ class Serra09(CoverAlgorithm):
         Cached features
     """
     def __init__(self, datapath="../features_covers80", chroma_type='hpcp', shortname='benchmark', 
-                oti=True, kappa=0.095, tau=1, m=9, downsample_fac=40, do_memmaps=True):
+                oti=True, kappa=0.095, m=9, downsample_fac=40, do_memmaps=True):
         self.oti = oti
-        self.tau = tau
         self.m = m
         self.chroma_type = chroma_type
         self.kappa = kappa
-        self.tau = tau
         self.m = m
         self.downsample_fac = downsample_fac
         self.all_feats = {} # For caching features (global chroma and stacked chroma)
@@ -42,31 +42,30 @@ class Serra09(CoverAlgorithm):
     def load_features(self, i):
         if not i in self.all_feats:
             feats = CoverAlgorithm.load_features(self, i)
-            ## Step 1: Compute chroma embeddings
+            ## Step 1: Compute aggregated chroma
             # First compute global chroma (used for OTI later)
             chroma = feats[self.chroma_type]
             gchroma = global_chroma(chroma)
             # Now downsample the chromas using median aggregation
             chroma = librosa.util.sync(chroma.T, np.arange(0, chroma.shape[0], self.downsample_fac), aggregate=np.median)
-            # Finally, do a stacked delay embedding
-            chroma_stacked = librosa.feature.stack_memory(chroma, self.tau, self.m).T
             
-            ## Step 2: Compute MFCC Embeddings
+            ## Step 2: Compute aggregated mfcc
             mfcc = feats['mfcc_htk']
             mfcc[np.isnan(mfcc)] = 0
             mfcc[np.isinf(mfcc)] = 0
             mfcc = librosa.util.sync(mfcc, np.arange(0, mfcc.shape[1], self.downsample_fac), aggregate=np.mean)
-            mfcc_stacked = librosa.feature.stack_memory(mfcc, self.tau, self.m).T
-            mag = np.sqrt(np.sum(mfcc_stacked**2, 1))
-            mag[mag == 0] = 1
-            mfcc_stacked /= mag[:, None]
 
-            ## Step 3: Save away features
-            # Chop down features so they have the same length (makes fusion easier later)
-            N = min(chroma_stacked.shape[0], mfcc_stacked.shape[0])
-            chroma_stacked = chroma_stacked[0:N, :]
-            mfcc_stacked = mfcc_stacked[0:N, :]
-            feats = {'gchroma':gchroma, 'chroma_stacked':chroma_stacked, 'mfcc_stacked':mfcc_stacked}
+            ## Step 3: Do a uniform scaling
+            N = min(chroma.shape[1], mfcc.shape[1])
+            chroma = chroma[:, 0:N]
+            mfcc = mfcc[:, 0:N]
+            if COMMON_SIZE > -1:
+                chroma = resize(chroma, (chroma.shape[0], COMMON_SIZE), anti_aliasing=True)
+                mfcc = resize(mfcc, (mfcc.shape[0], COMMON_SIZE), anti_aliasing=True)
+
+            ## Step 4: Do a stacked delay embedding of mfcc and save away features
+            mfcc_stacked = sliding_window(mfcc.T, self.m)
+            feats = {'gchroma':gchroma, 'chroma':chroma, 'mfcc_stacked':mfcc_stacked}
             self.all_feats[i] = feats
         return self.all_feats[i]
 
@@ -77,7 +76,11 @@ class Serra09(CoverAlgorithm):
             Si = self.load_features(i)
             Sj = self.load_features(j)
             ## Step 1: Do chroma similarities
-            csm = get_csm_blocked_oti(Si['chroma_stacked'], Sj['chroma_stacked'], Si['gchroma'], Sj['gchroma'], get_csm_euclidean)
+            oti = get_oti(Si['gchroma'], Sj['gchroma'])
+            C1 = np.roll(Si['chroma'], oti, axis=0)
+            C2 = Sj['chroma']
+            csm = get_csm_cosine(C1.T, C2.T)
+            csm = sliding_csm(csm, self.m)
             csm = csm_to_binary(csm, self.kappa)
             M, N = csm.shape[0], csm.shape[1]
             D = np.zeros(M*N, dtype=np.float32)

@@ -23,13 +23,11 @@ class EarlySNF(Serra09):
         Cached features
     """
     def __init__(self, datapath="../features_covers80", chroma_type='hpcp', shortname='benchmark', 
-                oti=True, kappa=0.095, tau=1, m=9, downsample_fac=40, do_memmaps=True):
+                oti=True, kappa=0.095, m=9, downsample_fac=40, do_memmaps=True):
         self.oti = oti
-        self.tau = tau
         self.m = m
         self.chroma_type = chroma_type
         self.kappa = kappa
-        self.tau = tau
         self.m = m
         self.downsample_fac = downsample_fac
         self.all_feats = {} # For caching features (global chroma and stacked chroma)
@@ -43,18 +41,24 @@ class EarlySNF(Serra09):
             Sj = self.load_features(j)
             Ws = []
             ## Step 1: Get chroma matrices
-            csm = get_csm_blocked_oti(Si['chroma_stacked'], Sj['chroma_stacked'], Si['gchroma'], Sj['gchroma'], get_csm_euclidean)
+            oti = get_oti(Si['gchroma'], Sj['gchroma'])
+            C1 = np.roll(Si['chroma'], oti, axis=0)
+            C2 = Sj['chroma']
+            csm = get_csm_cosine(C1.T, C2.T)
+            csm = sliding_csm(csm, self.m)
             M, N = csm.shape[0], csm.shape[1]
             K = int(self.kappa*(M+N))
-            ssma = get_ssm(Si['chroma_stacked'])
-            ssmb = get_ssm(Sj['chroma_stacked'])
+            ssma = get_csm_cosine(C1.T, C1.T)
+            ssma = sliding_csm(ssma, self.m)
+            ssmb = get_csm_cosine(C2.T, C2.T)
+            ssmb = sliding_csm(ssmb, self.m)
             Ws.append(get_WCSMSSM(ssma, ssmb, csm, K))
             # Might as well do Serra09 while we're at it
             csm = csm_to_binary(csm, self.kappa)
             D = np.zeros(M*N, dtype=np.float32)
             similarities['chroma_qmax'][idx] = qmax(csm.flatten(), D, M, N) / (M+N)
             similarities['chroma_dmax'][idx] = dmax(csm.flatten(), D, M, N) / (M+N)
-
+            
             ## Step 2: Get mfcc matrices
             csm = get_csm(Si['mfcc_stacked'], Sj['mfcc_stacked'])
             ssma = get_ssm(Si['mfcc_stacked'])

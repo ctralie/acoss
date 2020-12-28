@@ -276,7 +276,7 @@ def snf_ws(Ws, K = 5, niters = 20, reg_diag = True, \
         print("Total Time multiplying: %g"%np.sum(np.array(AllTimes)))
     return fused_score(Pts)
 
-def snf(Scores, K = 5, niters = 20, reg_diag = True, do_animation = False):
+def snf(Scores, K = 5, niters = 20, reg_diag = True, do_animation = False, verbose_times=True):
     """
     Do similarity fusion on a set of NxN distance matrices.
     Parameters the same as snf_ws
@@ -284,7 +284,7 @@ def snf(Scores, K = 5, niters = 20, reg_diag = True, do_animation = False):
     """
     #Affinity matrices
     Ws = [get_W(D, K) for D in Scores]
-    return (Ws, snf_ws(Ws=Ws, K=K, niters=niters, reg_diag=reg_diag, do_animation=do_animation))
+    return (Ws, snf_ws(Ws=Ws, K=K, niters=niters, reg_diag=reg_diag, do_animation=do_animation, verbose_times=verbose_times))
 
 
 def doSNFSyntheticTest():

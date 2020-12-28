@@ -5,6 +5,46 @@ optimal transposition indexes
 import numpy as np
 from scipy import sparse
 
+def sliding_window(X, win):
+    """
+    Get a delay embedding of a feature
+    Parameters
+    ----------
+    X: ndarray(N, d)
+        A point cloud with N points in d dimensions
+    win: int
+        Window length
+    """
+    M = X.shape[0] - win + 1
+    Y = np.zeros((M, X.shape[1]*win))
+    for i in range(win):
+        Y[:, i*X.shape[1]:(i+1)*X.shape[1]] = X[i:i+M, :]
+    return Y
+
+def sliding_csm(D, win):
+    """
+    Perform the effect of a sliding window on an CSM by averaging
+    along diagonals
+    Parameters
+    ----------
+    D: ndarray(M, N)
+        A cross-similarity matrix
+    win: int
+        Window length
+    """
+    M = D.shape[0] - win + 1
+    N = D.shape[1] - win + 1
+    S = np.zeros((M, N))
+    J, I = np.meshgrid(np.arange(N), np.arange(M))
+    for i in range(-M+1, N):
+        x = np.diag(D, i)
+        x = np.array([0] + x.tolist())
+        x = np.cumsum(x)
+        x = x[win::] - x[0:-win]
+        S[np.diag(I, i), np.diag(J, i)] = x
+    return S
+
+
 def get_ssm(X):
     """
     Fast code for computing the Euclidean self-similarity
