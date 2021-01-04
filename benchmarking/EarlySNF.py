@@ -35,8 +35,9 @@ class EarlySNF(Serra09):
 
     def similarity(self, idxs):
         N = idxs.shape[0]
-        similarities = {'chroma_qmax':np.zeros(N), 'chroma_dmax':np.zeros(N), 'mfcc_qmax':np.zeros(N), 'mfcc_dmax':np.zeros(N), "snf_qmax":np.zeros(N), "snf_dmax":np.zeros(N)}
+        similarities = {'ssms_scatter_qmax':np.zeros(N), 'ssms_scatter_dmax':np.zeros(N), 'chroma_qmax':np.zeros(N), 'chroma_dmax':np.zeros(N), 'mfcc_qmax':np.zeros(N), 'mfcc_dmax':np.zeros(N), "snf_qmax":np.zeros(N), "snf_dmax":np.zeros(N)}
         for idx, (i,j) in enumerate(zip(idxs[:, 0], idxs[:, 1])):
+            print(i, j)
             Si = self.load_features(i)
             Sj = self.load_features(j)
             Ws = []
@@ -70,7 +71,18 @@ class EarlySNF(Serra09):
             similarities['mfcc_qmax'][idx] = qmax(csm.flatten(), D, M, N) / (M+N)
             similarities['mfcc_dmax'][idx] = dmax(csm.flatten(), D, M, N) / (M+N)
 
-            ## Step 3: Do early fusion
+            ## Step 3: Do SSM Similarities
+            csm = get_csm(Si['ssms'], Sj['ssms'])
+            ssma = get_ssm(Si['ssms'])
+            ssmb = get_ssm(Sj['ssms'])
+            Ws.append(get_WCSMSSM(ssma, ssmb, csm, K))
+            # Might as well do Serra09 while we're at it
+            csm = csm_to_binary(csm, self.kappa)
+            D = np.zeros(M*N, dtype=np.float32)
+            similarities['ssms_scatter_qmax'][idx] = qmax(csm.flatten(), D, M, N) / (M+N)
+            similarities['ssms_scatter_dmax'][idx] = dmax(csm.flatten(), D, M, N) / (M+N)
+            
+            ## Step 4: Do early fusion
             csm = snf_ws(Ws, K = K, niters = 5, reg_diag = True, verbose_times=False)
             csm = -csm[0:M, M::] # Do negative since this is a similarity but binary csm expects difference
             csm = csm_to_binary(csm, self.kappa)
