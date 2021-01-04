@@ -199,8 +199,8 @@ class CoverAlgorithm(object):
         I, J = np.meshgrid(np.arange(res), np.arange(res))
         I, J = I.flatten(), J.flatten()
         I, J = I[I >= J], J[I >= J]
-        i = I[idx]
-        j = J[idx]
+        i = I[idx-1]
+        j = J[idx-1]
         I, J = np.meshgrid(np.arange(w), np.arange(w))
         idxs = np.array([I.flatten()+i*w, J.flatten()+j*w]).T
         idxs = idxs[idxs[:, 0] < N, :]
