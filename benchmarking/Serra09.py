@@ -64,8 +64,9 @@ def get_ssm_sequence(mfcc, downsample_fac, m):
         idx += downsample_fac
         ssms.append(D.flatten())
     print("Elapsed time ssms: ", time.time()-tic)
-    return np.array(ssms)
-
+    ssms = np.array(ssms, dtype=np.float32)
+    print("ssms.size = ", ssms.size)
+    return ssms
 
 
 class Serra09(CoverAlgorithm):
