@@ -9,12 +9,12 @@ import librosa
 from skimage.transform import resize
 
 COMMON_SIZE = -1
-RES = 128
+RES = 64
 scattering = None
 DO_SCATTERING = True
 if DO_SCATTERING:
     from kymatio.numpy import Scattering2D
-    scattering = Scattering2D(shape=(RES, RES), J=4, L=8)
+    scattering = Scattering2D(shape=(RES, RES), J=3, L=8)
 
 def global_chroma(chroma):
     """Computes global chroma of a input chroma vector"""
@@ -42,6 +42,7 @@ def get_ssm_sequence(mfcc, downsample_fac, m):
     ssms = []
     idx = 0
     win = int(downsample_fac/2)
+    tic = time.time()
     while idx + m*downsample_fac <= mfcc.shape[0]:
         x = mfcc[idx:idx+m*downsample_fac, :]
         # Smooth out mfcc
@@ -62,6 +63,7 @@ def get_ssm_sequence(mfcc, downsample_fac, m):
             D = scattering(D)
         idx += downsample_fac
         ssms.append(D.flatten())
+    print("Elapsed time ssms: ", time.time()-tic)
     return np.array(ssms)
 
 

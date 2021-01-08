@@ -31,7 +31,7 @@ class EarlySNF(Serra09):
         self.m = m
         self.downsample_fac = downsample_fac
         self.all_feats = {} # For caching features (global chroma and stacked chroma)
-        CoverAlgorithm.__init__(self, "EarlySNF", datapath=datapath, shortname=shortname, do_memmaps=do_memmaps, similarity_types=["chroma_qmax", "chroma_dmax", "mfcc_qmax", "mfcc_dmax", "snf_qmax", "snf_dmax"])
+        CoverAlgorithm.__init__(self, "EarlySNF", datapath=datapath, shortname=shortname, do_memmaps=do_memmaps, similarity_types=["chroma_qmax", "chroma_dmax", "mfcc_qmax", "mfcc_dmax", "ssms_scatter_qmax", "ssms_scatter_dmax", "snf_qmax", "snf_dmax"])
 
     def similarity(self, idxs):
         N = idxs.shape[0]
@@ -61,6 +61,7 @@ class EarlySNF(Serra09):
             similarities['chroma_dmax'][idx] = dmax(csm.flatten(), D, M, N) / (M+N)
             
             ## Step 2: Get mfcc matrices
+            """
             csm = get_csm(Si['mfcc_stacked'], Sj['mfcc_stacked'])
             ssma = get_ssm(Si['mfcc_stacked'])
             ssmb = get_ssm(Sj['mfcc_stacked'])
@@ -70,6 +71,7 @@ class EarlySNF(Serra09):
             D = np.zeros(M*N, dtype=np.float32)
             similarities['mfcc_qmax'][idx] = qmax(csm.flatten(), D, M, N) / (M+N)
             similarities['mfcc_dmax'][idx] = dmax(csm.flatten(), D, M, N) / (M+N)
+            """
 
             ## Step 3: Do SSM Similarities
             csm = get_csm(Si['ssms'], Sj['ssms'])
@@ -83,7 +85,7 @@ class EarlySNF(Serra09):
             similarities['ssms_scatter_dmax'][idx] = dmax(csm.flatten(), D, M, N) / (M+N)
             
             ## Step 4: Do early fusion
-            csm = snf_ws(Ws, K = K, niters = 5, reg_diag = True, verbose_times=False)
+            csm = snf_ws(Ws, K = K, niters = 3, reg_diag = True, verbose_times=True)
             csm = -csm[0:M, M::] # Do negative since this is a similarity but binary csm expects difference
             csm = csm_to_binary(csm, self.kappa)
             D = np.zeros(M*N, dtype=np.float32)
