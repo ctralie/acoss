@@ -41,8 +41,6 @@ class CoverAlgorithm(object):
         self.filepaths = sorted(glob.glob("%s/*.h5" % datapath))
         self.cliques = {}
         self.N = len(self.filepaths)
-        if not os.path.exists(cachedir):
-            os.mkdir(cachedir)
         self.do_memmaps = do_memmaps
         self.similarity_types = similarity_types
         if do_memmaps:
