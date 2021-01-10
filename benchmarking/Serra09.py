@@ -9,12 +9,13 @@ import matplotlib.pyplot as plt
 import argparse
 import librosa
 from skimage.transform import resize
+import scipy.io as sio
 
 COMMON_SIZE = -1
 RES = 64
-SCATTERING_J = 1
+SCATTERING_J = 2
 SCATTERING_L = 8
-SSM_WIN_MUL = 1 # Factor by which to multiply scattering window 
+SSM_WIN_MUL = 2 # Factor by which to multiply scattering window 
 scattering = None
 DO_SCATTERING = True
 if DO_SCATTERING:
@@ -119,26 +120,15 @@ class Serra09(CoverAlgorithm):
             if DO_SCATTERING:
                 ssmcachepath = "scattering_{}_{}".format(SCATTERING_J, SCATTERING_L)
             ssmcachepath += "_{}_{}_{}".format(self.downsample_fac, self.m*SSM_WIN_MUL, i)
-            ssmcachepath = self.get_cacheprefix() + "_" + ssmcachepath + ".h5"
+            ssmcachepath = self.get_cacheprefix() + "_" + ssmcachepath + ".mat"
             print(ssmcachepath)
             ssms = np.array([])
             tic = time.time()
             if not os.path.exists(ssmcachepath):
                 ssms = get_ssm_sequence(mfcc_orig[0:N*self.downsample_fac], self.downsample_fac, self.m*SSM_WIN_MUL)
-                dd.io.save(ssmcachepath, {'ssms':ssms})
+                sio.savemat(ssmcachepath, {'ssms':ssms})
             else:
-                count = 0
-                while count < 10:
-                    try:
-                        ssms = dd.io.load(ssmcachepath)['ssms']
-                        break
-                    except:
-                        print("Retrying ", count, "for ", i)
-                        time.sleep(1)
-                        count += 1
-                if count == 10:
-                    print("ERROR: Could not load ", i)
-                    return
+                ssms = sio.loadmat(ssmcachepath)['ssms']
             print("Elapsed time computing ssms: ", time.time()-tic)
 
             ## Step 4: Do a uniform scaling
