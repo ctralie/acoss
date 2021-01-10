@@ -4,19 +4,20 @@ Batch feature extractor
 
 @2019
 """
-from preprocess.utils import log, read_txt_file, ErrorFile
-from preprocess.features import AudioFeatures
+from utils import log, read_txt_file, ErrorFile
+from features import AudioFeatures
 from joblib import Parallel, delayed
 import deepdish as dd
-import preprocess.local_config as local_config
+import local_config as local_config
 import argparse
 import time
 import os
 import glob
+import subprocess
 
 
-_LOG_FILE = log("extractor.log")
-_ERROR_FILE = ErrorFile("errors.txt")
+#_LOG_FILE = log("extractor.log")
+#_ERROR_FILE = ErrorFile("errors.txt")
 
 
 PROFILE = {
@@ -56,26 +57,27 @@ def compute_features(audio_path, params=PROFILE):
 
 def compute_features_from_list_file(input_txt_file, feature_dir, params=PROFILE):
     """Compute certain audio features for a list of audio file paths"""
-
+    print("input_txt_file", input_txt_file)
     start_time = time.time()
-    _LOG_FILE.info("\nExtracting features for %s " % input_txt_file)
-    data = read_txt_file(input_txt_file)
-    data = [path for path in data if os.path.exists(path)]
+    print("\nExtracting features for %s " % input_txt_file)
+    fin = open(input_txt_file)
+    files = [s.rstrip() for s in fin.readlines()]
+    fin.close()
+    data = [path for path in files if os.path.exists(path)]
     if len(data) <= 1:
-        _LOG_FILE.debug("Empty collection txt file -%s- !" % input_txt_file)
+        print("Empty collection txt file -%s- !" % input_txt_file)
         raise IOError("Empty collection txt file -%s- !" % input_txt_file)
 
     for song in data:
-        try:
+        feature_path = feature_dir + "/" + os.path.basename(song).replace(params['input_audio_format'], '') + '.h5'
+        if not os.path.exists(feature_path):
+            print(feature_path)
             feature_dict = compute_features(audio_path=song, params=params)
             # save as h5
-            dd.io.save(feature_dir + os.path.basename(song).replace(params['input_audio_format'], '') + '.h5', feature_dict)
-        except:
-            _ERROR_FILE.add(input_txt_file)
-            _ERROR_FILE.add(song)
-            _LOG_FILE.debug("Error: skipping computing features for audio file --%s-- " % song)
+            dd.io.save(feature_path, feature_dict)
 
-    _LOG_FILE.info("Process finished in - %s - seconds" % (start_time - time.time()))
+
+    print("Process finished in - %s - seconds" % (start_time - time.time()))
 
 
 def batch_feature_extractor(collections_dir, feature_dir, n_threads, params=PROFILE):
@@ -105,7 +107,8 @@ def batch_feature_extractor(collections_dir, feature_dir, n_threads, params=PROF
             /*_collections.txt
 
     """
-    collection_files = glob.glob(collections_dir + '*.txt')
+    print(collections_dir + '/*.txt')
+    collection_files = glob.glob(collections_dir + '/*.txt')
     feature_path = [feature_dir for i in range(len(collection_files))]
     param_list = [params for i in range(len(collection_files))]
     args = zip(collection_files, feature_path, param_list)
@@ -135,21 +138,24 @@ if __name__ == '__main__':
     if not os.path.exists(cmd_args.p):
         os.mkdir(cmd_args.p)
 
+    """
     if cmd_args.d == 'benchmark':
         local_config.create_benchmark_files(n_splits=50)
     elif cmd_args.d == 'whatisacover':
         local_config.create_whatisacover_files(n_splits=50)
     else:
         raise IOError("Invalid value for arg -d. Choose either one of ['benchmark', 'whatisacover']")
+    """
 
     if cmd_args.m == 'cluster':
         compute_features_from_list_file(local_config.COLLECTION_DIR + cmd_args.c, cmd_args.p)
     elif cmd_args.m == 'cpu':
-        batch_feature_extractor(cmd_args.c, cmd_args.p, cmd_args.n)
+        #batch_feature_extractor(cmd_args.c, cmd_args.p, int(cmd_args.n))
+        compute_features_from_list_file(cmd_args.c, cmd_args.p)
     else:
         raise IOError("Invalid value for arg -m. Choose either one of ['cpu', 'cluster']")
 
-    _ERROR_FILE.close()
+    #_ERROR_FILE.close()
     print ("... Done ....")
     print (" -- PROFILE INFO -- \n %s" % PROFILE)
 

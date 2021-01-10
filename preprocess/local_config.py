@@ -2,11 +2,11 @@
 """
 @2019
 """
-import preprocess.utils as util
+import utils as util
 import os
 
 
-PROJECT_PATH = "/datasets/MTG/projects/da-tacos/"
+PROJECT_PATH = "./"
 SONG_DIR = PROJECT_PATH + "downloads/songs/"
 FEATURE_DIR = PROJECT_PATH + "features/"
 MODULE_PATH = PROJECT_PATH + "coversongdataset/"
