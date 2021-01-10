@@ -22,7 +22,7 @@ class EarlySNF(Serra09):
     all_feats: {int: dictionary}
         Cached features
     """
-    def __init__(self, datapath="../features_covers80", chroma_type='hpcp', shortname='benchmark', 
+    def __init__(self, datapath="../features_covers80", chroma_type='crema', shortname='benchmark', 
                 oti=True, kappa=0.095, m=9, downsample_fac=40, do_memmaps=True):
         self.oti = oti
         self.m = m
@@ -103,7 +103,7 @@ if __name__ == '__main__':
     parser.add_argument("-d", '--datapath', type=str, action="store", default='../features_covers80',
                         help="Path to data files")
     parser.add_argument("-s", "--shortname", type=str, action="store", default="covers80", help="Short name for dataset")
-    parser.add_argument("-c", '--chroma_type', type=str, action="store", default='hpcp',
+    parser.add_argument("-c", '--chroma_type', type=str, action="store", default='crema',
                         help="Type of chroma to use for experiments")
     parser.add_argument("-p", '--parallel', type=int, choices=(0, 1), action="store", default=0,
                         help="Parallel computing or not")
