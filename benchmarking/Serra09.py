@@ -2,6 +2,8 @@
 from pySeqAlign import qmax, dmax
 from CoverAlgorithm import *
 from CRPUtils import *
+import os
+import deepdish as dd
 import numpy as np
 import matplotlib.pyplot as plt
 import argparse
@@ -10,11 +12,14 @@ from skimage.transform import resize
 
 COMMON_SIZE = -1
 RES = 64
+SCATTERING_J = 1
+SCATTERING_L = 8
+SSM_WIN_MUL = 1 # Factor by which to multiply scattering window 
 scattering = None
 DO_SCATTERING = True
 if DO_SCATTERING:
     from kymatio.numpy import Scattering2D
-    scattering = Scattering2D(shape=(RES, RES), J=3, L=8)
+    scattering = Scattering2D(shape=(RES, RES), J=SCATTERING_J, L=SCATTERING_L)
 
 def global_chroma(chroma):
     """Computes global chroma of a input chroma vector"""
@@ -63,9 +68,7 @@ def get_ssm_sequence(mfcc, downsample_fac, m):
             D = scattering(D)
         idx += downsample_fac
         ssms.append(D.flatten())
-    print("Elapsed time ssms: ", time.time()-tic)
     ssms = np.array(ssms, dtype=np.float32)
-    print("ssms.size = ", ssms.size)
     return ssms
 
 
@@ -112,8 +115,20 @@ class Serra09(CoverAlgorithm):
             chroma = chroma[:, 0:N]
             mfcc = mfcc[:, 0:N]
             ## Step 3: Compute MFCC SSMs
-            ssms = get_ssm_sequence(mfcc_orig[0:N*self.downsample_fac], self.downsample_fac, self.m)
-            
+            ssmcachepath = "ssm"
+            if DO_SCATTERING:
+                ssmcachepath = "scattering_{}_{}".format(SCATTERING_J, SCATTERING_L)
+            ssmcachepath += "_{}_{}_{}".format(self.downsample_fac, self.m*SSM_WIN_MUL, i)
+            ssmcachepath = self.get_cacheprefix() + "_" + ssmcachepath + ".h5"
+            print(ssmcachepath)
+            ssms = np.array([])
+            tic = time.time()
+            if os.path.exists(ssmcachepath):
+                ssms = dd.io.load(ssmcachepath)['ssms']
+            else:
+                ssms = get_ssm_sequence(mfcc_orig[0:N*self.downsample_fac], self.downsample_fac, self.m*SSM_WIN_MUL)
+                dd.io.save(ssmcachepath, {'ssms':ssms})
+            print("Elapsed time computing ssms: ", time.time()-tic)
 
             ## Step 4: Do a uniform scaling
             if COMMON_SIZE > -1:
@@ -185,6 +200,7 @@ if __name__ == '__main__':
     parser.add_argument("-n", '--n_cores', type=int, action="store", default=1,
                         help="No of cores required for parallelization")
     parser.add_argument("-r", "--range", type=str, action="store", default="")
+    parser.add_argument("-f", "--features", type=int, choices=(0, 1), action="store", default=0, help="Compute features only")
     parser.add_argument("-b", "--batch_path", type=str, action="store", default="")
 
     cmd_args = parser.parse_args()
@@ -193,7 +209,7 @@ if __name__ == '__main__':
     if (len(cmd_args.range) > 0):
         do_memmaps = False
     serra09 = Serra09(cmd_args.datapath, cmd_args.chroma_type, cmd_args.shortname, do_memmaps=do_memmaps)
-    
+    plt.figure(figsize=(15, 10))
     if len(cmd_args.batch_path) > 0:
         # Aggregrate precomputed similarities
         serra09.load_batches(cmd_args.batch_path)
@@ -210,7 +226,10 @@ if __name__ == '__main__':
         else:
             # Do only a range and save it
             [w, idx] = [int(s) for s in cmd_args.range.split("-")]
-            serra09.do_batch(w, idx, "cache/serra")
+            if cmd_args.features == 1:
+                earlySNF.do_batch_features(w, idx)
+            else:
+                earlySNF.do_batch(w, idx)
     
     print("... Done ....")
 

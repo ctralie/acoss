@@ -176,7 +176,24 @@ class CoverAlgorithm(object):
             dd.io.save(h5filename, self.Ds)    
         print("Elapsed Time All Pairwise: %.3g"%(time.time()-tic))
 
-    def do_batch(self, w, idx, fileprefix):
+    def do_batch_features(self, n_batches, idx):
+        """
+        Compute a set of features in a batch.  This method will normally
+        do nothing, but everything that gets cached is preserved after
+        the run, so it can be used to precompute cached features
+        Parameters
+        ----------
+        n_batches: int
+            Number of batches
+        idx: int
+            Batch index
+        """
+        N = len(self.filepaths)
+        w = int(np.ceil(N/n_batches))
+        for i in np.arange(w) + idx*w:
+            self.load_features(i)
+
+    def do_batch(self, w, idx):
         """
         Compute and save a block of similarities
         Parameters
@@ -186,10 +203,8 @@ class CoverAlgorithm(object):
             by this number)
         idx: int
             Batch index
-        fileprefix: string
-            Prefix of path to which to save the results
         """
-        fout = "{}_{}.h5".format(fileprefix, idx)
+        fout = "{}_{}.h5".format(self.get_cacheprefix(), idx)
         if os.path.exists(fout):
             print("Skipping", fout)
         else:
@@ -201,8 +216,8 @@ class CoverAlgorithm(object):
             I, J = np.meshgrid(np.arange(res), np.arange(res))
             I, J = I.flatten(), J.flatten()
             I, J = I[I >= J], J[I >= J]
-            i = I[idx-1]
-            j = J[idx-1]
+            i = I[idx]
+            j = J[idx]
             I, J = np.meshgrid(np.arange(w), np.arange(w))
             idxs = np.array([I.flatten()+i*w, J.flatten()+j*w]).T
             idxs = idxs[idxs[:, 0] < N, :]

@@ -61,17 +61,17 @@ class EarlySNF(Serra09):
             similarities['chroma_dmax'][idx] = dmax(csm.flatten(), D, M, N) / (M+N)
             
             ## Step 2: Get mfcc matrices
-            """
             csm = get_csm(Si['mfcc_stacked'], Sj['mfcc_stacked'])
+            """
             ssma = get_ssm(Si['mfcc_stacked'])
             ssmb = get_ssm(Sj['mfcc_stacked'])
             Ws.append(get_WCSMSSM(ssma, ssmb, csm, K))
+            """
             # Might as well do Serra09 while we're at it
             csm = csm_to_binary(csm, self.kappa)
             D = np.zeros(M*N, dtype=np.float32)
             similarities['mfcc_qmax'][idx] = qmax(csm.flatten(), D, M, N) / (M+N)
             similarities['mfcc_dmax'][idx] = dmax(csm.flatten(), D, M, N) / (M+N)
-            """
 
             ## Step 3: Do SSM Similarities
             csm = get_csm(Si['ssms'], Sj['ssms'])
@@ -110,6 +110,7 @@ if __name__ == '__main__':
     parser.add_argument("-n", '--n_cores', type=int, action="store", default=1,
                         help="No of cores required for parallelization")
     parser.add_argument("-r", "--range", type=str, action="store", default="")
+    parser.add_argument("-f", "--features", type=int, choices=(0, 1), action="store", default=0, help="Compute features only")
     parser.add_argument("-b", "--batch_path", type=str, action="store", default="")
 
     cmd_args = parser.parse_args()
@@ -135,7 +136,10 @@ if __name__ == '__main__':
         else:
             # Do only a range and save it
             [w, idx] = [int(s) for s in cmd_args.range.split("-")]
-            earlySNF.do_batch(w, idx, "cache/earlysnf")
+            if cmd_args.features == 1:
+                earlySNF.do_batch_features(w, idx)
+            else:
+                earlySNF.do_batch(w, idx)
     
     print("... Done ....")
 
