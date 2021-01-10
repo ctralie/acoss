@@ -123,11 +123,22 @@ class Serra09(CoverAlgorithm):
             print(ssmcachepath)
             ssms = np.array([])
             tic = time.time()
-            if os.path.exists(ssmcachepath):
-                ssms = dd.io.load(ssmcachepath)['ssms']
-            else:
+            if not os.path.exists(ssmcachepath):
                 ssms = get_ssm_sequence(mfcc_orig[0:N*self.downsample_fac], self.downsample_fac, self.m*SSM_WIN_MUL)
                 dd.io.save(ssmcachepath, {'ssms':ssms})
+            else:
+                count = 0
+                while count < 10:
+                    try:
+                        ssms = dd.io.load(ssmcachepath)['ssms']
+                        break
+                    except:
+                        print("Retrying ", count, "for ", i)
+                        time.sleep(1)
+                        count += 1
+                if count == 10:
+                    print("ERROR: Could not load ", i)
+                    return
             print("Elapsed time computing ssms: ", time.time()-tic)
 
             ## Step 4: Do a uniform scaling
@@ -227,9 +238,9 @@ if __name__ == '__main__':
             # Do only a range and save it
             [w, idx] = [int(s) for s in cmd_args.range.split("-")]
             if cmd_args.features == 1:
-                earlySNF.do_batch_features(w, idx)
+                serra09.do_batch_features(w, idx)
             else:
-                earlySNF.do_batch(w, idx)
+                serra09.do_batch(w, idx)
     
     print("... Done ....")
 
