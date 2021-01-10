@@ -25,8 +25,9 @@ def chrompwr(X, P=.5):
     # rescale cols so norm of output cols match norms of input cols
     return CMn * (CMp / CMpn)
 
+CHROMA_WIN = 75
 
-def btchroma_to_fftmat(btchroma, win=75):
+def btchroma_to_fftmat(btchroma, win=CHROMA_WIN):
     """
     Stack the flattened result of fft2 on patches 12 x win
     Translation of my own matlab function
@@ -74,58 +75,44 @@ class FTM2D(CoverAlgorithm):
         return "%s/%s_%s_%s"%(self.cachedir, self.name, self.shortname, self.chroma_type)
 
     def load_features(self, i, do_plot=False):
-        filepath = "%s_%i.h5"%(self.get_cacheprefix(), i)
         if i in self.shingles:
             # If the result has already been cached in memory, 
             # return the cache
             return self.shingles[i]
-        elif os.path.exists(filepath):
-            # If the result has already been cached on disk, 
-            # load it, save it in memory, and return
-            self.shingles[i] = dd.io.load(filepath)['shingle']
-            # Make sure to also load clique info as a side effect
-            feats = CoverAlgorithm.load_features(self, i)
-            return self.shingles[i]
-
         # Otherwise, compute the shingle
         import librosa.util
         feats = CoverAlgorithm.load_features(self, i)
         hpcp_orig = feats[self.chroma_type].T
         # Synchronize HPCP to the beats
         onsets = feats['madmom_features']['onsets']
-        hpcp = librosa.util.sync(hpcp_orig, onsets, aggregate=np.median)
-        chroma = chrompwr(hpcp, self.PWR)    
-        
-        # Get all 2D FFT magnitude shingles
-        
-        
-        shingles = btchroma_to_fftmat(chroma, self.WIN).T
-        Norm = np.sqrt(np.sum(shingles**2, 1))
-        Norm[Norm == 0] = 1
-        shingles = np.log(self.C*shingles/Norm[:, None] + 1)
-        shingle = np.median(shingles, 0) # Median aggregate
-        shingle = shingle/np.sqrt(np.sum(shingle**2))
-        
-
-        # 0-padding instead of median aggregation
-        # print("chroma dims: " + str(len(chroma)) + " by " + str(len(chroma[0])))
-
-        
-
-        if do_plot:
-            import librosa.display
-            plt.subplot(311)
-            librosa.display.specshow(librosa.amplitude_to_db(hpcp_orig, ref=np.max))
-            plt.title("Original")
-            plt.subplot(312)
-            librosa.display.specshow(librosa.amplitude_to_db(hpcp, ref=np.max))
-            plt.title("Beat-synchronous Median Aggregated")
-            plt.subplot(313)
-            plt.imshow(np.reshape(shingle, (hpcp.shape[0], self.WIN)))
-            plt.title("Median FFT2D Mag Shingle")
-            plt.show()
+        shingle = np.zeros(900)
+        if onsets.size > CHROMA_WIN:
+            hpcp = librosa.util.sync(hpcp_orig, onsets, aggregate=np.median)
+            chroma = chrompwr(hpcp, self.PWR)    
+            # Get all 2D FFT magnitude shingles
+            shingles = btchroma_to_fftmat(chroma, self.WIN).T
+            Norm = np.sqrt(np.sum(shingles**2, 1))
+            Norm[Norm == 0] = 1
+            shingles = np.log(self.C*shingles/Norm[:, None] + 1)
+            shingle = np.median(shingles, 0) # Median aggregate
+            shingle = shingle/np.sqrt(np.sum(shingle**2))
+            # 0-padding instead of median aggregation
+            # print("chroma dims: " + str(len(chroma)) + " by " + str(len(chroma[0])))
+            if do_plot:
+                import librosa.display
+                plt.subplot(311)
+                librosa.display.specshow(librosa.amplitude_to_db(hpcp_orig, ref=np.max))
+                plt.title("Original")
+                plt.subplot(312)
+                librosa.display.specshow(librosa.amplitude_to_db(hpcp, ref=np.max))
+                plt.title("Beat-synchronous Median Aggregated")
+                plt.subplot(313)
+                plt.imshow(np.reshape(shingle, (hpcp.shape[0], self.WIN)))
+                plt.title("Median FFT2D Mag Shingle")
+                plt.show()
+        else:
+            print("Warning: Not enough beats")
         self.shingles[i] = shingle
-        dd.io.save(filepath, {'shingle':shingle})
         return shingle
     
     def similarity(self, idxs):

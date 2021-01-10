@@ -189,24 +189,28 @@ class CoverAlgorithm(object):
         fileprefix: string
             Prefix of path to which to save the results
         """
-        N = len(self.filepaths)
-        # Split up into squares to minimize features that need to be loaded
-        # between two sets of songs
-        # Assuming N is divisible by w
-        res = int(N/w)
-        I, J = np.meshgrid(np.arange(res), np.arange(res))
-        I, J = I.flatten(), J.flatten()
-        I, J = I[I >= J], J[I >= J]
-        i = I[idx-1]
-        j = J[idx-1]
-        I, J = np.meshgrid(np.arange(w), np.arange(w))
-        idxs = np.array([I.flatten()+i*w, J.flatten()+j*w]).T
-        idxs = idxs[idxs[:, 0] < N, :]
-        idxs = idxs[idxs[:, 1] < N, :]
-        idxs = idxs[idxs[:, 0] >= idxs[:, 1], :]
-        similarities = self.similarity(idxs)
-        similarities['idxs'] = idxs
-        dd.io.save("{}_{}.h5".format(fileprefix, idx), similarities)
+        fout = "{}_{}.h5".format(fileprefix, idx)
+        if os.path.exists(fout):
+            print("Skipping", fout)
+        else:
+            N = len(self.filepaths)
+            # Split up into squares to minimize features that need to be loaded
+            # between two sets of songs
+            # Assuming N is divisible by w
+            res = int(N/w)
+            I, J = np.meshgrid(np.arange(res), np.arange(res))
+            I, J = I.flatten(), J.flatten()
+            I, J = I[I >= J], J[I >= J]
+            i = I[idx-1]
+            j = J[idx-1]
+            I, J = np.meshgrid(np.arange(w), np.arange(w))
+            idxs = np.array([I.flatten()+i*w, J.flatten()+j*w]).T
+            idxs = idxs[idxs[:, 0] < N, :]
+            idxs = idxs[idxs[:, 1] < N, :]
+            idxs = idxs[idxs[:, 0] >= idxs[:, 1], :]
+            similarities = self.similarity(idxs)
+            similarities['idxs'] = idxs
+            dd.io.save(fout, similarities)
     
     def load_batches(self, fileprefix):
         """
