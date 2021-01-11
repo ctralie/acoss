@@ -40,6 +40,7 @@ class CoverAlgorithm(object):
         self.cachedir = cachedir
         self.filepaths = sorted(glob.glob("%s/*.h5" % datapath))
         self.cliques = {}
+        self.all_feats = {} # For caching loaded features
         self.N = len(self.filepaths)
         self.do_memmaps = do_memmaps
         self.similarity_types = similarity_types
@@ -193,7 +194,7 @@ class CoverAlgorithm(object):
         for i in np.arange(w) + idx*w:
             self.load_features(i)
 
-    def do_batch(self, w, idx):
+    def do_batch_subbatch(self, w, idx, wsub, isub, jsub):
         """
         Compute and save a block of similarities
         Parameters
@@ -203,10 +204,18 @@ class CoverAlgorithm(object):
             by this number)
         idx: int
             Batch index
+        wsub: int
+            Size of sub_block
+        isub: int
+            Sub-batch row index
+        jsub: int
+            Sub-batch column index
         """
-        fout = "{}_{}.h5".format(self.get_cacheprefix(), idx)
+        fout = "{}_{}_{}_{}_{}.h5".format(self.get_cacheprefix(), idx, wsub, isub, jsub)
+        similarities = {}
         if os.path.exists(fout):
             print("Skipping", fout)
+            similarities = dd.io.load(fout)
         else:
             N = len(self.filepaths)
             # Split up into squares to minimize features that need to be loaded
@@ -218,7 +227,9 @@ class CoverAlgorithm(object):
             I, J = I[I >= J], J[I >= J]
             i = I[idx]
             j = J[idx]
-            I, J = np.meshgrid(np.arange(w), np.arange(w))
+            pixi = np.arange(w)[isub*wsub:(isub+1)*wsub]
+            pixj = np.arange(w)[jsub*wsub:(jsub+1)*wsub]
+            I, J = np.meshgrid(pixi, pixj)
             idxs = np.array([I.flatten()+i*w, J.flatten()+j*w]).T
             idxs = idxs[idxs[:, 0] < N, :]
             idxs = idxs[idxs[:, 1] < N, :]
@@ -226,6 +237,44 @@ class CoverAlgorithm(object):
             similarities = self.similarity(idxs)
             similarities['idxs'] = idxs
             dd.io.save(fout, similarities)
+        return similarities
+
+    def do_batch(self, w, idx, wsub = -1):
+        """
+        Compute and save a block of similarities
+        Parameters
+        ----------
+        w: int
+            Size of block (assumed that total number of songs is divisible
+            by this number)
+        idx: int
+            Batch 
+        wsub: int
+            Subsize of block
+        """
+        fout = "{}_{}.h5".format(self.get_cacheprefix(), idx)
+        if os.path.exists(fout):
+            print("Skipping", fout)
+        else:
+            if wsub == -1:
+                wsub = w
+            k = int(w/wsub)
+            similarities = {}
+            ## Step 1: Compute all sub-blocks
+            for i in range(k):
+                for j in range(k):
+                    # Clear features so garbage collector gets rid of them
+                    self.all_feats = {}
+                    s = self.do_batch_subbatch(w, idx, wsub, i, j)
+                    if len(similarities) == 0:
+                        similarities = s
+                    else:
+                        for key in s:
+                            similarities[key] = np.concatenate((similarities[key], s[key]))
+            dd.io.save(fout, similarities)
+            ## Step 2: Delete subblocks
+            for f in glob.glob("{}_{}_{}_*_*.h5".format(self.get_cacheprefix(), idx, wsub)):
+                os.remove(f)
     
     def load_batches(self, fileprefix):
         """
@@ -348,4 +397,3 @@ class CoverAlgorithm(object):
         fout.write("\n")
         fout.close()
         return (MR, MRR, MDR, MAP, tops)
-

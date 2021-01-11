@@ -30,7 +30,6 @@ class EarlySNF(Serra09):
         self.kappa = kappa
         self.m = m
         self.downsample_fac = downsample_fac
-        self.all_feats = {} # For caching features (global chroma and stacked chroma)
         CoverAlgorithm.__init__(self, "EarlySNF", datapath=datapath, shortname=shortname, do_memmaps=do_memmaps, similarity_types=["chroma_qmax", "chroma_dmax", "mfcc_qmax", "mfcc_dmax", "ssms_scatter_qmax", "ssms_scatter_dmax", "snf_qmax", "snf_dmax"])
 
     def similarity(self, idxs):
@@ -111,6 +110,7 @@ if __name__ == '__main__':
                         help="No of cores required for parallelization")
     parser.add_argument("-r", "--range", type=str, action="store", default="")
     parser.add_argument("-f", "--features", type=int, choices=(0, 1), action="store", default=0, help="Compute features only")
+    parser.add_argument("-w", "--wsub", type=int, action="store", default=-1, help="Size of subbatch block")
     parser.add_argument("-b", "--batch_path", type=str, action="store", default="")
 
     cmd_args = parser.parse_args()
@@ -139,7 +139,7 @@ if __name__ == '__main__':
             if cmd_args.features == 1:
                 earlySNF.do_batch_features(w, idx)
             else:
-                earlySNF.do_batch(w, idx)
+                earlySNF.do_batch(w, idx, cmd_args.wsub)
     
     print("... Done ....")
 

@@ -9,7 +9,6 @@ import matplotlib.pyplot as plt
 import argparse
 import librosa
 from skimage.transform import resize
-import scipy.io as sio
 
 COMMON_SIZE = -1
 RES = 64
@@ -94,7 +93,6 @@ class Serra09(CoverAlgorithm):
         self.kappa = kappa
         self.m = m
         self.downsample_fac = downsample_fac
-        self.all_feats = {} # For caching features (global chroma and stacked chroma)
         CoverAlgorithm.__init__(self, "Serra09", datapath=datapath, shortname=shortname, do_memmaps=do_memmaps, similarity_types=["ssms_scatter_qmax", "ssms_scatter_dmax", "chroma_qmax", "chroma_dmax", "mfcc_qmax", "mfcc_dmax"])
 
     def load_features(self, i):
@@ -120,15 +118,20 @@ class Serra09(CoverAlgorithm):
             if DO_SCATTERING:
                 ssmcachepath = "scattering_{}_{}".format(SCATTERING_J, SCATTERING_L)
             ssmcachepath += "_{}_{}_{}".format(self.downsample_fac, self.m*SSM_WIN_MUL, i)
-            ssmcachepath = self.get_cacheprefix() + "_" + ssmcachepath + ".mat"
+            ssmcachepath = self.get_cacheprefix() + "_" + ssmcachepath + ".h5"
             print(ssmcachepath)
             ssms = np.array([])
             tic = time.time()
             if not os.path.exists(ssmcachepath):
                 ssms = get_ssm_sequence(mfcc_orig[0:N*self.downsample_fac], self.downsample_fac, self.m*SSM_WIN_MUL)
-                sio.savemat(ssmcachepath, {'ssms':ssms})
+                dd.io.save(ssmcachepath, {'ssms':ssms})
             else:
-                ssms = sio.loadmat(ssmcachepath)['ssms']
+                try:
+                    ssms = dd.io.load(ssmcachepath)['ssms']
+                except:
+                    print("Error loading ", ssmcachepath)
+                    ssms = get_ssm_sequence(mfcc_orig[0:N*self.downsample_fac], self.downsample_fac, self.m*SSM_WIN_MUL)
+
             print("Elapsed time computing ssms: ", time.time()-tic)
 
             ## Step 4: Do a uniform scaling
@@ -202,6 +205,7 @@ if __name__ == '__main__':
                         help="No of cores required for parallelization")
     parser.add_argument("-r", "--range", type=str, action="store", default="")
     parser.add_argument("-f", "--features", type=int, choices=(0, 1), action="store", default=0, help="Compute features only")
+    parser.add_argument("-w", "--wsub", type=int, action="store", default=-1, help="Size of subbatch block")
     parser.add_argument("-b", "--batch_path", type=str, action="store", default="")
 
     cmd_args = parser.parse_args()
@@ -230,7 +234,7 @@ if __name__ == '__main__':
             if cmd_args.features == 1:
                 serra09.do_batch_features(w, idx)
             else:
-                serra09.do_batch(w, idx)
+                serra09.do_batch(w, idx, cmd_args.wsub)
     
     print("... Done ....")
 
