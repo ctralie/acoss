@@ -85,7 +85,7 @@ class Serra09(CoverAlgorithm):
     all_feats: {int: dictionary}
         Cached features
     """
-    def __init__(self, datapath="../features_covers80", chroma_type='hpcp', shortname='benchmark', 
+    def __init__(self, datapath="../features_covers80", chroma_type='crema', shortname='benchmark', 
                 oti=True, kappa=0.095, m=9, downsample_fac=40, do_memmaps=True):
         self.oti = oti
         self.m = m
@@ -111,6 +111,7 @@ class Serra09(CoverAlgorithm):
             mfcc_orig[np.isinf(mfcc_orig)] = 0
             mfcc = librosa.util.sync(mfcc_orig, np.arange(0, mfcc_orig.shape[1], self.downsample_fac), aggregate=np.mean)
             N = min(chroma.shape[1], mfcc.shape[1])
+            M = N - self.m + 1 # Number of stacked delay windows
             chroma = chroma[:, 0:N]
             mfcc = mfcc[:, 0:N]
             ## Step 3: Compute MFCC SSMs
@@ -140,15 +141,14 @@ class Serra09(CoverAlgorithm):
                 mfcc = resize(mfcc, (mfcc.shape[0], COMMON_SIZE), anti_aliasing=True)
 
             ## Step 5: Do a stacked delay embedding of mfcc and save away features
-            mfcc_stacked = sliding_window(mfcc.T, self.m)
-            if ssms.shape[0] < mfcc_stacked.shape[0]:
-                ssms2 = np.zeros((mfcc_stacked.shape[0], ssms.shape[1]))
+            if ssms.shape[0] < M:
+                ssms2 = np.zeros((M, ssms.shape[1]))
                 ssms2[0:ssms.shape[0], :] = ssms
                 ssms2[ssms.shape[0]::, :] = ssms[-1, :]
                 ssms = ssms2
-            ssms = ssms[0:mfcc_stacked.shape[0], :]
+            ssms = ssms[0:M, :]
 
-            feats = {'gchroma':gchroma, 'chroma':chroma, 'mfcc_stacked':mfcc_stacked, 'ssms':ssms}
+            feats = {'gchroma':gchroma, 'chroma':chroma, 'mfcc':mfcc, 'ssms':ssms}
             self.all_feats[i] = feats
         return self.all_feats[i]
 
@@ -163,17 +163,18 @@ class Serra09(CoverAlgorithm):
             oti = get_oti(Si['gchroma'], Sj['gchroma'])
             C1 = np.roll(Si['chroma'], oti, axis=0)
             C2 = Sj['chroma']
-            csm = get_csm_cosine(C1.T, C2.T)
+            csm = get_csm(C1.T, C2.T)
             csm = sliding_csm(csm, self.m)
-            csm = csm_to_binary(csm, self.kappa)
+            csm = csm_to_binary_mutual(csm, self.kappa)
             M, N = csm.shape[0], csm.shape[1]
             D = np.zeros(M*N, dtype=np.float32)
             similarities['chroma_qmax'][idx] = qmax(csm.flatten(), D, M, N) / (M+N)
             similarities['chroma_dmax'][idx] = dmax(csm.flatten(), D, M, N) / (M+N)
 
             ## Step 2: Do MFCC similarities
-            csm = get_csm(Si['mfcc_stacked'], Sj['mfcc_stacked'])
-            csm = csm_to_binary(csm, self.kappa)
+            csm = get_csm(Si['mfcc'].T, Sj['mfcc'].T)
+            csm = sliding_csm(csm, self.m)
+            csm = csm_to_binary_mutual(csm, self.kappa)
             M, N = csm.shape[0], csm.shape[1]
             D = np.zeros(M*N, dtype=np.float32)
             similarities['mfcc_qmax'][idx] = qmax(csm.flatten(), D, M, N) / (M+N)
@@ -181,7 +182,7 @@ class Serra09(CoverAlgorithm):
 
             ## Step 3: Do SSM Similarities
             csm = get_csm(Si['ssms'], Sj['ssms'])
-            csm = csm_to_binary(csm, self.kappa)
+            csm = csm_to_binary_mutual(csm, self.kappa)
             M, N = csm.shape[0], csm.shape[1]
             D = np.zeros(M*N, dtype=np.float32)
             similarities['ssms_scatter_qmax'][idx] = qmax(csm.flatten(), D, M, N) / (M+N)
@@ -197,7 +198,7 @@ if __name__ == '__main__':
     parser.add_argument("-d", '--datapath', type=str, action="store", default='../features_covers80',
                         help="Path to data files")
     parser.add_argument("-s", "--shortname", type=str, action="store", default="covers80", help="Short name for dataset")
-    parser.add_argument("-c", '--chroma_type', type=str, action="store", default='hpcp',
+    parser.add_argument("-c", '--chroma_type', type=str, action="store", default='crema',
                         help="Type of chroma to use for experiments")
     parser.add_argument("-p", '--parallel', type=int, choices=(0, 1), action="store", default=0,
                         help="Parallel computing or not")

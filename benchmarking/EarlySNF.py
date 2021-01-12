@@ -44,30 +44,25 @@ class EarlySNF(Serra09):
             oti = get_oti(Si['gchroma'], Sj['gchroma'])
             C1 = np.roll(Si['chroma'], oti, axis=0)
             C2 = Sj['chroma']
-            csm = get_csm_cosine(C1.T, C2.T)
+            csm = get_csm(C1.T, C2.T)
             csm = sliding_csm(csm, self.m)
             M, N = csm.shape[0], csm.shape[1]
             K = int(self.kappa*(M+N))
-            ssma = get_csm_cosine(C1.T, C1.T)
+            ssma = get_csm(C1.T, C1.T)
             ssma = sliding_csm(ssma, self.m)
-            ssmb = get_csm_cosine(C2.T, C2.T)
+            ssmb = get_csm(C2.T, C2.T)
             ssmb = sliding_csm(ssmb, self.m)
             Ws.append(get_WCSMSSM(ssma, ssmb, csm, K))
             # Might as well do Serra09 while we're at it
-            csm = csm_to_binary(csm, self.kappa)
+            csm = csm_to_binary_mutual(csm, self.kappa)
             D = np.zeros(M*N, dtype=np.float32)
             similarities['chroma_qmax'][idx] = qmax(csm.flatten(), D, M, N) / (M+N)
             similarities['chroma_dmax'][idx] = dmax(csm.flatten(), D, M, N) / (M+N)
             
-            ## Step 2: Get mfcc matrices
-            csm = get_csm(Si['mfcc_stacked'], Sj['mfcc_stacked'])
-            """
-            ssma = get_ssm(Si['mfcc_stacked'])
-            ssmb = get_ssm(Sj['mfcc_stacked'])
-            Ws.append(get_WCSMSSM(ssma, ssmb, csm, K))
-            """
-            # Might as well do Serra09 while we're at it
-            csm = csm_to_binary(csm, self.kappa)
+            ## Step 2: Do Serra09 on MFCC for completeness, but don't include in fusion
+            csm = get_csm(Si['mfcc'].T, Sj['mfcc'].T)
+            csm = sliding_csm(csm, self.m)
+            csm = csm_to_binary_mutual(csm, self.kappa)
             D = np.zeros(M*N, dtype=np.float32)
             similarities['mfcc_qmax'][idx] = qmax(csm.flatten(), D, M, N) / (M+N)
             similarities['mfcc_dmax'][idx] = dmax(csm.flatten(), D, M, N) / (M+N)
@@ -78,7 +73,7 @@ class EarlySNF(Serra09):
             ssmb = get_ssm(Sj['ssms'])
             Ws.append(get_WCSMSSM(ssma, ssmb, csm, K))
             # Might as well do Serra09 while we're at it
-            csm = csm_to_binary(csm, self.kappa)
+            csm = csm_to_binary_mutual(csm, self.kappa)
             D = np.zeros(M*N, dtype=np.float32)
             similarities['ssms_scatter_qmax'][idx] = qmax(csm.flatten(), D, M, N) / (M+N)
             similarities['ssms_scatter_dmax'][idx] = dmax(csm.flatten(), D, M, N) / (M+N)
@@ -86,7 +81,7 @@ class EarlySNF(Serra09):
             ## Step 4: Do early fusion
             csm = snf_ws(Ws, K = K, niters = 3, reg_diag = True, verbose_times=True)
             csm = -csm[0:M, M::] # Do negative since this is a similarity but binary csm expects difference
-            csm = csm_to_binary(csm, self.kappa)
+            csm = csm_to_binary_mutual(csm, self.kappa)
             D = np.zeros(M*N, dtype=np.float32)
             similarities['snf_qmax'][idx] = qmax(csm.flatten(), D, M, N) / (M+N)
             similarities['snf_dmax'][idx] = dmax(csm.flatten(), D, M, N) / (M+N)

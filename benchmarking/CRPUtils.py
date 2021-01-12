@@ -37,11 +37,11 @@ def sliding_csm(D, win):
     S = np.zeros((M, N))
     J, I = np.meshgrid(np.arange(N), np.arange(M))
     for i in range(-M+1, N):
-        x = np.diag(D, i)
+        x = np.diag(D, i)**2
         x = np.array([0] + x.tolist())
         x = np.cumsum(x)
         x = x[win::] - x[0:-win]
-        S[np.diag(I, i), np.diag(J, i)] = x
+        S[np.diag(I, i), np.diag(J, i)] = np.sqrt(x)
     return S
 
 
@@ -170,12 +170,18 @@ def csm_to_binary(D, kappa):
     """
     Turn a cross-similarity matrix into a binary cross-simlarity matrix, using partitions instead of
     nearest neighbors for speed
-    :param D: M x N cross-similarity matrix
-    :param kappa:
+    Parameters
+    ----------
+    D: ndarray(M, N)
+        M x N cross-similarity matrix
+    kappa: float
         If kappa = 0, take all neighbors
         If kappa < 1 it is the fraction of mutual neighbors to consider
         Otherwise kappa is the number of mutual neighbors to consider
-    :returns B: MxN binary cross-similarity matrix
+    Returns
+    -------
+    B: ndarray(M, N)
+        MxN binary cross-similarity matrix
     """
     N = D.shape[0]
     M = D.shape[1]
@@ -191,3 +197,23 @@ def csm_to_binary(D, kappa):
     [I, J] = [I.flatten(), J.flatten()]
     ret = sparse.coo_matrix((V, (I, J)), shape=(N, M), dtype=np.uint8)
     return ret.toarray()
+
+def csm_to_binary_mutual(D, kappa):
+    """
+    Turn a cross-similarity matrix into a binary cross-simlarity matrix, where 
+    an entry (i, j) is a 1 if and only if it is within the both the nearest
+    neighbor set of i and the nearest neighbor set of j
+    Parameters
+    ----------
+    D: ndarray(M, N)
+        M x N cross-similarity matrix
+    kappa: float
+        If kappa = 0, take all neighbors
+        If kappa < 1 it is the fraction of mutual neighbors to consider
+        Otherwise kappa is the number of mutual neighbors to consider
+    Returns
+    -------
+    B: ndarray(M, N)
+        MxN binary cross-similarity matrix
+    """
+    return csm_to_binary(D, kappa)*(csm_to_binary(D.T, kappa).T)
