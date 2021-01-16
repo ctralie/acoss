@@ -36,7 +36,7 @@ class EarlySNF(Serra09):
         N = idxs.shape[0]
         similarities = {'ssms_scatter_qmax':np.zeros(N), 'ssms_scatter_dmax':np.zeros(N), 'chroma_qmax':np.zeros(N), 'chroma_dmax':np.zeros(N), 'mfcc_qmax':np.zeros(N), 'mfcc_dmax':np.zeros(N), "snf_qmax":np.zeros(N), "snf_dmax":np.zeros(N)}
         for idx, (i,j) in enumerate(zip(idxs[:, 0], idxs[:, 1])):
-            print(i, j)
+            tic = time.time()
             Si = self.load_features(i)
             Sj = self.load_features(j)
             Ws = []
@@ -77,14 +77,17 @@ class EarlySNF(Serra09):
             D = np.zeros(M*N, dtype=np.float32)
             similarities['ssms_scatter_qmax'][idx] = qmax(csm.flatten(), D, M, N) / (M+N)
             similarities['ssms_scatter_dmax'][idx] = dmax(csm.flatten(), D, M, N) / (M+N)
-            
+
             ## Step 4: Do early fusion
-            csm = snf_ws(Ws, K = K, niters = 3, reg_diag = True, verbose_times=True)
+            ticsnf = time.time()
+            csm = snf_ws(Ws, K = K, niters = 3, reg_diag = True, verbose_times=False)
             csm = -csm[0:M, M::] # Do negative since this is a similarity but binary csm expects difference
             csm = csm_to_binary_mutual(csm, self.kappa)
             D = np.zeros(M*N, dtype=np.float32)
             similarities['snf_qmax'][idx] = qmax(csm.flatten(), D, M, N) / (M+N)
             similarities['snf_dmax'][idx] = dmax(csm.flatten(), D, M, N) / (M+N)
+            print("Elapsed time snf %i to %i: %.3g"%(i, j, time.time()-ticsnf))
+            print("Elapsed time total %i to %i: %.3g"%(i, j, time.time()-tic))
 
             if self.do_memmaps:
                 for key in self.Ds.keys():

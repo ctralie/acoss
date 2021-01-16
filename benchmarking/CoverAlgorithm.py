@@ -214,8 +214,10 @@ class CoverAlgorithm(object):
         fout = "{}_{}_{}_{}_{}.h5".format(self.get_cacheprefix(), idx, wsub, isub, jsub)
         similarities = {}
         if os.path.exists(fout):
-            print("Skipping", fout)
+            # Previous versions of the code saved sub-batches as individual files,
+            # so load them in and clean them up if they exist
             similarities = dd.io.load(fout)
+            os.remove(fout)
         else:
             N = len(self.filepaths)
             # Split up into squares to minimize features that need to be loaded
@@ -236,7 +238,6 @@ class CoverAlgorithm(object):
             idxs = idxs[idxs[:, 0] >= idxs[:, 1], :]
             similarities = self.similarity(idxs)
             similarities['idxs'] = idxs
-            dd.io.save(fout, similarities)
         return similarities
 
     def do_batch(self, w, idx, wsub = -1):
@@ -252,18 +253,22 @@ class CoverAlgorithm(object):
         wsub: int
             Subsize of block
         """
+        similarities = {}
+        blocks_completed = {}
         fout = "{}_{}.h5".format(self.get_cacheprefix(), idx)
         if os.path.exists(fout):
-            print("Skipping", fout)
-        else:
-            if wsub == -1:
-                wsub = w
-            k = int(w/wsub)
-            similarities = {}
-            ## Step 1: Compute all sub-blocks
-            for i in range(k):
-                for j in range(k):
-                    # Clear features so garbage collector gets rid of them
+            res = dd.io.load(fout)
+            similarities = res['similarities']
+            blocks_completed = res['blocks_completed']
+        if wsub == -1:
+            wsub = w
+        k = int(w/wsub)
+        ## Step 1: Compute all sub-blocks
+        for i in range(k):
+            for j in range(k):
+                # Clear features so garbage collector gets rid of them
+                if not (i, j) in blocks_completed:
+                    tic = time.time()
                     self.all_feats = {}
                     s = self.do_batch_subbatch(w, idx, wsub, i, j)
                     if len(similarities) == 0:
@@ -271,10 +276,11 @@ class CoverAlgorithm(object):
                     else:
                         for key in s:
                             similarities[key] = np.concatenate((similarities[key], s[key]))
-            dd.io.save(fout, similarities)
-            ## Step 2: Delete subblocks
-            for f in glob.glob("{}_{}_{}_*_*.h5".format(self.get_cacheprefix(), idx, wsub)):
-                os.remove(f)
+                    blocks_completed[(i, j)] = True
+                    # Cache changes every time a new set of similarities has been
+                    # computed
+                    dd.io.save(fout, {'similarities':similarities, 'blocks_completed':blocks_completed})
+                    print("Elapsed Time Sub-Batch %i_%i_%i: %.3g"%(idx, i, j, time.time()-tic), flush=True)
     
     def load_batches(self, fileprefix):
         """
@@ -288,7 +294,7 @@ class CoverAlgorithm(object):
         for key in self.Ds.keys():
             self.Ds[key] = np.zeros_like(self.Ds[key])
         for f in files:
-            res = dd.io.load(f)
+            res = dd.io.load(f)['similarities']
             idxs = res['idxs']
             I = idxs[:, 0]
             J = idxs[:, 1]

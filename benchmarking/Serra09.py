@@ -120,21 +120,18 @@ class Serra09(CoverAlgorithm):
                 ssmcachepath = "scattering_{}_{}".format(SCATTERING_J, SCATTERING_L)
             ssmcachepath += "_{}_{}_{}".format(self.downsample_fac, self.m*SSM_WIN_MUL, i)
             ssmcachepath = self.get_cacheprefix() + "_" + ssmcachepath + ".h5"
-            print(ssmcachepath)
             ssms = np.array([])
-            tic = time.time()
             if not os.path.exists(ssmcachepath):
+                tic = time.time()
                 ssms = get_ssm_sequence(mfcc_orig[0:N*self.downsample_fac], self.downsample_fac, self.m*SSM_WIN_MUL)
                 dd.io.save(ssmcachepath, {'ssms':ssms})
+                print("Elapsed time computing ssms: ", time.time()-tic)
             else:
                 try:
                     ssms = dd.io.load(ssmcachepath)['ssms']
                 except:
                     print("Error loading ", ssmcachepath)
                     ssms = get_ssm_sequence(mfcc_orig[0:N*self.downsample_fac], self.downsample_fac, self.m*SSM_WIN_MUL)
-
-            print("Elapsed time computing ssms: ", time.time()-tic)
-
             ## Step 4: Do a uniform scaling
             if COMMON_SIZE > -1:
                 chroma = resize(chroma, (chroma.shape[0], COMMON_SIZE), anti_aliasing=True)
