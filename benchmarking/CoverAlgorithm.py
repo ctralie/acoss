@@ -257,9 +257,12 @@ class CoverAlgorithm(object):
         blocks_completed = {}
         fout = "{}_{}.h5".format(self.get_cacheprefix(), idx)
         if os.path.exists(fout):
-            res = dd.io.load(fout)
-            similarities = res['similarities']
-            blocks_completed = res['blocks_completed']
+            try:
+                res = dd.io.load(fout)
+                similarities = res['similarities']
+                blocks_completed = res['blocks_completed']
+            except:
+                print("Error loading", fout, ": recomputing")
         if wsub == -1:
             wsub = w
         k = int(w/wsub)
