@@ -30,11 +30,6 @@ class EarlySNF(Serra09):
         self.kappa = kappa
         self.m = m
         self.downsample_fac = downsample_fac
-        self.ssmscache = {}
-        self.ssmscache_size = 0
-        self.time_ssmscache = {}
-        self.ssmscache_time = {}
-        self.cache_time = 0
         CoverAlgorithm.__init__(self, "EarlySNF", datapath=datapath, shortname=shortname, do_memmaps=do_memmaps, similarity_types=["chroma_qmax", "chroma_dmax", "mfcc_qmax", "mfcc_dmax", "ssms_scatter_qmax", "ssms_scatter_dmax", "snf_qmax", "snf_dmax"])
 
     def similarity(self, idxs):
@@ -124,7 +119,8 @@ if __name__ == '__main__':
     if (len(cmd_args.range) > 0):
         do_memmaps = False
     earlySNF = EarlySNF(cmd_args.datapath, cmd_args.chroma_type, cmd_args.shortname, do_memmaps=do_memmaps)
-    
+    earlySNF.set_cache2dir("cache2")
+
     if len(cmd_args.batch_path) > 0:
         # Aggregrate precomputed similarities
         earlySNF.load_batches(cmd_args.batch_path)

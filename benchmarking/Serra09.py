@@ -15,7 +15,6 @@ RES = 64
 SCATTERING_J = 2
 SCATTERING_L = 8
 SSM_WIN_MUL = 2 # Factor by which to multiply scattering window 
-MAX_CACHE_SIZE = 1024*1024*1024*3
 scattering = None
 DO_SCATTERING = True
 if DO_SCATTERING:
@@ -92,63 +91,7 @@ class Serra09(CoverAlgorithm):
         self.kappa = kappa
         self.m = m
         self.downsample_fac = downsample_fac
-        self.ssmscache = {}
-        self.ssmscache_size = 0
-        self.time_ssmscache = {}
-        self.ssmscache_time = {}
-        self.cache_time = 0
         CoverAlgorithm.__init__(self, "Serra09", datapath=datapath, shortname=shortname, do_memmaps=do_memmaps, similarity_types=["ssms_scatter_qmax", "ssms_scatter_dmax", "chroma_qmax", "chroma_dmax", "mfcc_qmax", "mfcc_dmax"])
-
-    def get_ssms_cache(self, filename):
-        """
-        Try to extract the ssms sequence from the in memory cache if it has
-        already been loaded from the hard drive and still exists in the cache
-        Parameters
-        ----------
-        filename: string
-            Path to file on hard drive
-        """
-        ssms = np.array([])
-        if filename in self.ssmscache:
-            ssms = self.ssmscache[filename]
-        return ssms
-    
-    def put_ssm_cache(self, filename, ssms):
-        """
-        Add an ssms sequence to the cache, making room if necessary by deleting
-        the least recently accessed ssms
-        Parameters
-        ----------
-        filename: string
-            Path to file on hard drive
-        ssms: ndarray(N, d)
-            Sequence of ssms
-        """
-        self.cache_time += 1
-        if not filename in self.ssmscache:
-            # Try to put this in the cache if it isn't already there
-            self.ssmscache_size += ssms.size*4
-            # First check to be sure that the size of the cache won't exceed
-            # memory limits.  If it will, remove the least recently accessed ssms
-            if self.ssmscache_size > MAX_CACHE_SIZE:
-                # Sort cache entries by time of last access
-                ts = sorted([t for t in self.time_ssmscache])
-                i = 0
-                while self.ssmscache_size > MAX_CACHE_SIZE:
-                    print("Freeing up space", len(self.ssmscache), len(self.ssmscache_time), len(self.time_ssmscache))
-                    to_delete = self.time_ssmscache[ts[i]]
-                    self.ssmscache_size -= self.ssmscache[to_delete].size*4
-                    del self.ssmscache[to_delete]
-                    del self.ssmscache_time[to_delete]
-                    del self.time_ssmscache[ts[i]]
-                    i += 1
-            self.ssmscache[filename] = ssms
-        else:
-            # Delete previous cache time entry
-            del self.time_ssmscache[self.ssmscache_time[filename]]
-        self.time_ssmscache[self.cache_time] = filename
-        self.ssmscache_time[filename] = self.cache_time
-
 
     def load_features(self, i):
         if not i in self.all_feats:
@@ -174,19 +117,27 @@ class Serra09(CoverAlgorithm):
             if DO_SCATTERING:
                 ssmcachepath = "scattering_{}_{}".format(SCATTERING_J, SCATTERING_L)
             ssmcachepath += "_{}_{}_{}".format(self.downsample_fac, self.m*SSM_WIN_MUL, i)
-            ssmcachepath = self.get_cacheprefix() + "_" + ssmcachepath + ".h5"
-            ssms = self.get_ssms_cache(ssmcachepath) # First try to get it from the cache in RAM
-            if ssms.size == 0:
-                if not os.path.exists(ssmcachepath):
+            cache1path = self.get_cacheprefix() + "_" + ssmcachepath + ".h5"
+            cache2path = ""
+            if self.cache2dir:
+                cache2path = "{}/{}.h5".format(self.cache2dir, ssmcachepath)
+            if not os.path.exists(cache1path):
+                ssms = get_ssm_sequence(mfcc_orig[0:N*self.downsample_fac], self.downsample_fac, self.m*SSM_WIN_MUL)
+                dd.io.save(cache1path, {'ssms':ssms})
+            else:
+                try:
+                    if len(cache2path) > 0 and os.path.exists(cache2path):
+                        tic = time.time()
+                        ssms = dd.io.load(cache2path)['ssms']
+                        print("Elapsed time cache 2 loading: ", time.time()-tic)
+                    else:
+                        tic = time.time()
+                        ssms = dd.io.load(cache1path)['ssms']
+                        print("Elapsed time cache 1 loading: ", time.time()-tic)
+                        dd.io.save(cache2path, {'ssms':ssms})
+                except:
+                    print("Error loading ", ssmcachepath, ": cache1path = {}, cache2path = {}".format(cache1path, cache2path))
                     ssms = get_ssm_sequence(mfcc_orig[0:N*self.downsample_fac], self.downsample_fac, self.m*SSM_WIN_MUL)
-                    dd.io.save(ssmcachepath, {'ssms':ssms})
-                else:
-                    try:
-                        ssms = dd.io.load(ssmcachepath)['ssms']
-                    except:
-                        print("Error loading ", ssmcachepath)
-                        ssms = get_ssm_sequence(mfcc_orig[0:N*self.downsample_fac], self.downsample_fac, self.m*SSM_WIN_MUL)
-            self.put_ssm_cache(ssmcachepath, ssms)
             ## Step 4: Do a uniform scaling
             if COMMON_SIZE > -1:
                 chroma = resize(chroma, (chroma.shape[0], COMMON_SIZE), anti_aliasing=True)
@@ -267,6 +218,7 @@ if __name__ == '__main__':
     if (len(cmd_args.range) > 0):
         do_memmaps = False
     serra09 = Serra09(cmd_args.datapath, cmd_args.chroma_type, cmd_args.shortname, do_memmaps=do_memmaps)
+    serra09.set_cache2dir("cache2")
     plt.figure(figsize=(15, 10))
     if len(cmd_args.batch_path) > 0:
         # Aggregrate precomputed similarities

@@ -22,7 +22,7 @@ class CoverAlgorithm(object):
         A dictionary of pairwise similarity matrices, whose 
         indices index into filepaths.
     """
-    def __init__(self, name = "Generic", datapath="features_benchmark", shortname="full", cachedir="cache", similarity_types = ["main"], do_memmaps = True):
+    def __init__(self, name = "Generic", datapath="features_benchmark", shortname="full", cachedir="cache", cache2dir="cache2", similarity_types = ["main"], do_memmaps = True):
         """
         Parameters
         ----------
@@ -44,12 +44,18 @@ class CoverAlgorithm(object):
         self.N = len(self.filepaths)
         self.do_memmaps = do_memmaps
         self.similarity_types = similarity_types
+        self.cache2dir = None
         if do_memmaps:
             self.Ds = {}
             for s in similarity_types:
                 self.Ds[s] = np.memmap('%s_%s_dmat' % (self.get_cacheprefix(), s), shape=(self.N, self.N), mode='w+', dtype='float32')
         print("Initialized %s algorithm on %i songs in dataset %s"%(name, self.N, shortname))
     
+    def set_cache2dir(self, cache2dir):
+        self.cache2dir = cache2dir
+        if not os.path.exists(cache2dir):
+            os.mkdir(cache2dir)
+
     def get_cacheprefix(self):
         """
         Return a descriptive file prefix to use for caching features
