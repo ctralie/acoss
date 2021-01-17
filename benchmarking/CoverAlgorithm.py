@@ -267,8 +267,9 @@ class CoverAlgorithm(object):
             wsub = w
         k = int(w/wsub)
         ## Step 1: Compute all sub-blocks
+        col_range = list(range(k))
         for i in range(k):
-            for j in range(k):
+            for j in col_range:
                 # Clear features so garbage collector gets rid of them
                 if not (i, j) in blocks_completed:
                     tic = time.time()
@@ -284,6 +285,8 @@ class CoverAlgorithm(object):
                     # computed
                     dd.io.save(fout, {'similarities':similarities, 'blocks_completed':blocks_completed})
                     print("Elapsed Time Sub-Batch %i_%i_%i: %.3g"%(idx, i, j, time.time()-tic), flush=True)
+            # Go in zigzag order to maximize cache hits
+            col_range = list(reversed(col_range))
     
     def load_batches(self, fileprefix):
         """
@@ -297,6 +300,7 @@ class CoverAlgorithm(object):
         for key in self.Ds.keys():
             self.Ds[key] = np.zeros_like(self.Ds[key])
         for f in files:
+            print(f)
             res = dd.io.load(f)['similarities']
             idxs = res['idxs']
             I = idxs[:, 0]

@@ -39,7 +39,7 @@ class EarlySNF(Serra09):
             tic = time.time()
             Si = self.load_features(i)
             Sj = self.load_features(j)
-            print("Elapsed time feature load %i to %i: %.3g"%(i, j, time.time()-tic))
+            #print("Elapsed time feature load %i to %i: %.3g"%(i, j, time.time()-tic))
             ticserra = time.time()
             Ws = []
             ## Step 1: Get chroma matrices
@@ -79,7 +79,7 @@ class EarlySNF(Serra09):
             D = np.zeros(M*N, dtype=np.float32)
             similarities['ssms_scatter_qmax'][idx] = qmax(csm.flatten(), D, M, N) / (M+N)
             similarities['ssms_scatter_dmax'][idx] = dmax(csm.flatten(), D, M, N) / (M+N)
-            print("Elapsed time Serra %i to %i: %.3g"%(i, j, time.time()-ticserra))
+            #print("Elapsed time Serra %i to %i: %.3g"%(i, j, time.time()-ticserra))
             ## Step 4: Do early fusion
             ticsnf = time.time()
             csm = snf_ws(Ws, K = K, niters = 3, reg_diag = True, verbose_times=False)
@@ -88,8 +88,8 @@ class EarlySNF(Serra09):
             D = np.zeros(M*N, dtype=np.float32)
             similarities['snf_qmax'][idx] = qmax(csm.flatten(), D, M, N) / (M+N)
             similarities['snf_dmax'][idx] = dmax(csm.flatten(), D, M, N) / (M+N)
-            print("Elapsed time snf %i to %i: %.3g"%(i, j, time.time()-ticsnf))
-            print("Elapsed time total %i to %i: %.3g"%(i, j, time.time()-tic), flush=True)
+            #print("Elapsed time snf %i to %i: %.3g"%(i, j, time.time()-ticsnf))
+            #print("Elapsed time total %i to %i: %.3g"%(i, j, time.time()-tic), flush=True)
 
             if self.do_memmaps:
                 for key in self.Ds.keys():
