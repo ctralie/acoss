@@ -7,6 +7,7 @@ from SimilarityFusion import *
 import numpy as np
 import argparse
 import librosa
+import deepdish as dd
 
 
 class EarlySNF(Serra09):
@@ -89,7 +90,7 @@ class EarlySNF(Serra09):
             similarities['snf_qmax'][idx] = qmax(csm.flatten(), D, M, N) / (M+N)
             similarities['snf_dmax'][idx] = dmax(csm.flatten(), D, M, N) / (M+N)
             #print("Elapsed time snf %i to %i: %.3g"%(i, j, time.time()-ticsnf))
-            #print("Elapsed time total %i to %i: %.3g"%(i, j, time.time()-tic), flush=True)
+            print("Elapsed time total %i to %i: %.3g"%(i, j, time.time()-tic), flush=True)
 
             if self.do_memmaps:
                 for key in self.Ds.keys():
@@ -112,14 +113,14 @@ if __name__ == '__main__':
     parser.add_argument("-f", "--features", type=int, choices=(0, 1), action="store", default=0, help="Compute features only")
     parser.add_argument("-w", "--wsub", type=int, action="store", default=-1, help="Size of subbatch block")
     parser.add_argument("-b", "--batch_path", type=str, action="store", default="")
+    parser.add_argument("-l", "--leftover", type=str, action="store", default="")
 
     cmd_args = parser.parse_args()
     
     do_memmaps = True
-    if (len(cmd_args.range) > 0):
+    if (len(cmd_args.range) > 0) or len(cmd_args.leftover) > 0:
         do_memmaps = False
     earlySNF = EarlySNF(cmd_args.datapath, cmd_args.chroma_type, cmd_args.shortname, do_memmaps=do_memmaps)
-    earlySNF.set_cache2dir("cache2")
 
     if len(cmd_args.batch_path) > 0:
         # Aggregrate precomputed similarities
@@ -134,13 +135,21 @@ if __name__ == '__main__':
                 print(similarity_type)
                 earlySNF.getEvalStatistics(similarity_type)
             earlySNF.cleanup_memmap()
-        else:
+        elif len(cmd_args.range) > 0:
             # Do only a range and save it
             [w, idx] = [int(s) for s in cmd_args.range.split("-")]
             if cmd_args.features == 1:
                 earlySNF.do_batch_features(w, idx)
             else:
                 earlySNF.do_batch(w, idx, cmd_args.wsub)
+        elif len(cmd_args.leftover) > 0:
+            idxs = dd.io.load("leftover_idxs.h5")["idxs"]
+            [batch_size, idx] = [int(s) for s in cmd_args.leftover.split("-")]
+            idxs = idxs[batch_size*idx:batch_size*(idx+1), :]
+            fout = "{}_leftover{}.h5".format(earlySNF.get_cacheprefix(), idx)
+            similarities = earlySNF.similarity(idxs)
+            similarities['idxs'] = idxs
+            dd.io.save(fout, {"similarities":similarities})
     
     print("... Done ....")
 

@@ -305,15 +305,39 @@ class CoverAlgorithm(object):
         files = glob.glob("{}*.h5".format(fileprefix))
         for key in self.Ds.keys():
             self.Ds[key] = np.zeros_like(self.Ds[key])
+        N = self.Ds[list(self.Ds.keys())[0]].shape[0]
+        touched = np.zeros((N, N), dtype=np.uint8)
         for f in files:
             print(f)
             res = dd.io.load(f)['similarities']
             idxs = res['idxs']
             I = idxs[:, 0]
             J = idxs[:, 1]
+            touched[I, J] = 1
             for key in self.Ds.keys():
-                self.Ds[key][I, J] += res[key]
-                self.Ds[key][J, I] += res[key]
+                self.Ds[key][I, J] = res[key]
+                self.Ds[key][J, I] = res[key]
+        # Compute the leftover pairs if there are any
+        counted = 0
+        not_counted = 0
+        idxs_leftover = []
+        for j in range(N):
+            for i in range(j, N):
+                if touched[i, j]:
+                    counted += 1
+                else:
+                    not_counted += 1
+                    idxs_leftover.append([i, j])
+        print("counted = {}, not_counted = {}".format(counted, not_counted))
+        idxs_leftover = np.array(idxs_leftover, dtype=int)
+        dd.io.save("leftover.h5", {"idxs":idxs_leftover})
+        I, J = idxs_leftover[:, 0], idxs_leftover[:, 1]
+        similarities = self.similarity(idxs_leftover)
+        for key in self.Ds.keys():
+            self.Ds[key][I, J] = similarities[key]
+            self.Ds[key][J, I] = similarities[key]
+        dd.io.save("{}/leftover.h5".format(fileprefix), {'idxs':idxs_leftover, 'similarities':similarities})
+        # Load in the clique IDs for evaluation statistics
         self.get_all_clique_ids()
 
     def cleanup_memmap(self):

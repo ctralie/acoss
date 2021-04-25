@@ -159,6 +159,7 @@ class Serra09(CoverAlgorithm):
         N = idxs.shape[0]
         similarities = {'ssms_scatter_qmax':np.zeros(N), 'ssms_scatter_dmax':np.zeros(N), 'chroma_qmax':np.zeros(N), 'chroma_dmax':np.zeros(N), 'mfcc_qmax':np.zeros(N), 'mfcc_dmax':np.zeros(N)}
         for idx, (i,j) in enumerate(zip(idxs[:, 0], idxs[:, 1])):
+            print(i, j)
             Si = self.load_features(i)
             Sj = self.load_features(j)
 
