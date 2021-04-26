@@ -37,6 +37,9 @@ class EarlySNF(Serra09):
         N = idxs.shape[0]
         similarities = {'ssms_scatter_qmax':np.zeros(N), 'ssms_scatter_dmax':np.zeros(N), 'chroma_qmax':np.zeros(N), 'chroma_dmax':np.zeros(N), 'mfcc_qmax':np.zeros(N), 'mfcc_dmax':np.zeros(N), "snf_qmax":np.zeros(N), "snf_dmax":np.zeros(N)}
         for idx, (i,j) in enumerate(zip(idxs[:, 0], idxs[:, 1])):
+            if idx % 50 == 0:
+                # Be careful with memory
+                self.all_feats.clear()
             tic = time.time()
             Si = self.load_features(i)
             Sj = self.load_features(j)
