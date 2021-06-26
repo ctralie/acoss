@@ -17,6 +17,7 @@ import scipy.linalg as sclinalg
 from coverstats import *
 import librosa
 import skimage
+import skimage.transform
 from SimilarityFusion import *
 from CRPUtils import *
 import time
@@ -67,7 +68,7 @@ def getShapeDNA(features, do_plot=False, neigs=30):
     DMFCC = DMFCC[0:N, 0:N]
 
     K = int(np.round(N*0.01))
-    Ws, DFused = doSimilarityFusion([DChroma, DMFCC], K=K, niters=5)
+    Ws, DFused = snf([DChroma, DMFCC], K=K, niters=5)
     
     W = skimage.transform.resize(DFused, (dim, dim), anti_aliasing=True, mode='constant')
     w, v = getRandomWalkLaplacianEigsDense(W, neigs)
@@ -97,7 +98,7 @@ def getPairs():
     return pairs
 
 def computePairs():
-    np.warnings.filterwarnings('ignore')
+    #np.warnings.filterwarnings('ignore')
     pairs = getPairs()
     plt.figure(figsize=(12, 8))
     ws1 = []
@@ -114,8 +115,9 @@ def computePairs():
 
 def analyzeResults():
     np.warnings.filterwarnings('ignore')
-    ws1 = sio.loadmat("allws1.mat")["allws"]
-    ws2 = sio.loadmat("allws2.mat")["allws"]
+    res = sio.loadmat("allws.mat")
+    ws1 = res['ws1']
+    ws2 = res['ws2']
     N = min(ws2.shape[0], ws1.shape[0])
     ws1 = ws1[0:N, :]
     ws2 = ws2[0:N, :]
@@ -182,5 +184,6 @@ def PaperFigure():
     plt.savefig("ShapeDNAExample.svg", bbox_inches='tight')
 
 if __name__ == '__main__':
+    computePairs()
     analyzeResults()
     #PaperFigure()

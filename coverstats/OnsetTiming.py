@@ -301,6 +301,6 @@ def makeFigure():
 
 
 if __name__ == '__main__':
-    getAllSTDevs()
-    #getAllPersistenceImages()
+    #getAllSTDevs()
+    getAllPersistenceImages()
     #makeFigure()
